@@ -375,6 +375,44 @@ const mapActivityToDB = (a: ActivityRecord, activeUserId: string) => ({
 });
 
 
+const mapClosingFromDB = (db: any): ClosingRecord => ({
+  id: db.id,
+  propertyId: db.property_id,
+  manualProperty: db.manual_property,
+  buyerClientId: db.buyer_client_id,
+  manualBuyer: db.manual_buyer,
+  date: db.date,
+  agentName: db.agent_name,
+  salePrice: db.sale_price,
+  currency: db.currency,
+  commissionPercent: db.commission_percent,
+  sides: db.sides,
+  isShared: db.is_shared,
+  totalBilling: db.total_billing,
+  agentHonorarium: db.agent_honorarium,
+  createdAt: db.created_at
+});
+
+const mapClosingToDB = (c: ClosingRecord, activeUserId: string) => ({
+  id: c.id,
+  user_id: activeUserId,
+  property_id: c.propertyId,
+  manual_property: c.manualProperty,
+  buyer_client_id: c.buyerClientId,
+  manual_buyer: c.manualBuyer,
+  date: c.date,
+  agent_name: c.agentName,
+  sale_price: c.salePrice,
+  currency: c.currency,
+  commission_percent: c.commissionPercent,
+  sides: c.sides,
+  is_shared: c.isShared,
+  total_billing: c.totalBilling,
+  agent_honorarium: c.agentHonorarium,
+  created_at: c.createdAt
+});
+
+
 export default function App() {
   // Session State
   const [session, setSession] = useState<any>(null);
@@ -594,7 +632,7 @@ export default function App() {
     if (!hasLoadedOnce.current) setLoading(true);
 
     try {
-      const [c, p, bc, bs, v, m, act, settings] = await Promise.all([
+      const [c, p, bc, bs, v, m, act, settings, closings] = await Promise.all([
         supabase.from('seller_clients').select('*'),
         supabase.from('properties').select('*'),
         supabase.from('buyer_clients').select('*'),
@@ -602,7 +640,8 @@ export default function App() {
         supabase.from('visits').select('*'),
         supabase.from('property_marketing_logs').select('*').order('date', { ascending: false }),
         supabase.from('activities').select('*'),
-        supabase.from('user_settings').select('*').eq('user_id', session.user.id).single()
+        supabase.from('user_settings').select('*').eq('user_id', session.user.id).single(),
+        supabase.from('closing_logs').select('*')
       ]);
 
       if (settings.data) {
@@ -647,6 +686,10 @@ export default function App() {
       if (act.data) {
         const mapped = act.data.filter(x => !!x).map(mapActivityFromDB);
         setActivities(isMother && selectedTeamUser ? mapped.filter(x => x.userId === selectedTeamUser) : mapped);
+      }
+      if (closings.data) {
+        const mapped = closings.data.filter(x => !!x).map(mapClosingFromDB);
+        setClosingLogs(mapped);
       }
 
     } catch (error: any) {
@@ -820,9 +863,29 @@ export default function App() {
   };
 
   // --- Handlers (Closings) ---
-  const handleAddClosing = (closing: ClosingRecord) => {
+  const handleAddClosing = async (closing: ClosingRecord) => {
     if (!session?.user) return;
+
+    // Optimistic Update
     setClosingLogs(prev => [closing, ...prev]);
+
+    // Save to DB
+    try {
+      // Exclude the temporary ID "CL-..." so Supabase generates a valid UUID
+      const { id, ...closingData } = closing;
+      // Also ensure we map it correctly
+      const dbPayload = mapClosingToDB(closing, session.user.id);
+
+      // If ID looks like temp (starts with CL-), remove it from payload
+      if (typeof dbPayload.id === 'string' && dbPayload.id.startsWith('CL-')) {
+        delete (dbPayload as any).id;
+      }
+
+      await supabase.from('closing_logs').insert(dbPayload);
+    } catch (err) {
+      console.error("Error saving closing:", err);
+      // Ideally revert optimistic update here on error, but keeping it simple
+    }
 
     // Auto-create Activity 'cierre'
     const propDesc = closing.manualProperty || (closing.propertyId ? properties.find(p => p.id === closing.propertyId)?.address.street : 'Propiedad');
