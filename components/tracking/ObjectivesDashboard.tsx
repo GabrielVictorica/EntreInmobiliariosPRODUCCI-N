@@ -20,6 +20,7 @@ import { PropertyRecord, VisitRecord, ActivityRecord } from '../../types';
 
 // Components
 import CaptationProjector from './CaptationProjector';
+import { DebouncedInput } from '../DebouncedInput';
 
 interface ObjectivesDashboardProps {
     currentBilling: number;
@@ -49,67 +50,7 @@ const getWeekNumber = (d: Date) => {
     return weekNo;
 };
 
-const DebouncedInput = ({
-    value,
-    onChange,
-    className,
-    id,
-    disabled,
-    ...props
-}: {
-    value: number;
-    onChange: (val: number) => void;
-    className?: string;
-    id?: string;
-    disabled?: boolean;
-    [key: string]: any;
-}) => {
-    const [localValue, setLocalValue] = useState<string>(value.toString());
 
-    useEffect(() => {
-        setLocalValue(value.toString());
-    }, [value]);
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const val = e.target.value;
-        // Allow strictly numeric input (digits and one decimal point)
-        if (val === '' || /^\d*\.?\d*$/.test(val)) {
-            setLocalValue(val);
-        }
-    };
-
-    const handleBlur = () => {
-        let num = parseFloat(localValue);
-        if (localValue === '' || isNaN(num)) {
-            // Revert to original value if empty or invalid
-            setLocalValue(value.toString());
-        } else {
-            onChange(num);
-        }
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter') {
-            handleBlur();
-            (e.target as HTMLInputElement).blur();
-        }
-    };
-
-    return (
-        <input
-            {...props}
-            id={id}
-            type="text"
-            inputMode="decimal"
-            value={localValue}
-            onChange={handleChange}
-            onBlur={handleBlur}
-            onKeyDown={handleKeyDown}
-            disabled={disabled}
-            className={className}
-        />
-    );
-};
 
 function ObjectivesDashboard({
     currentBilling,
@@ -151,9 +92,9 @@ function ObjectivesDashboard({
     } = financialGoals;
 
     // Handlers for updates
-    const updateGoal = (key: string, value: any) => {
+    const updateGoal = React.useCallback((key: string, value: any) => {
         onUpdateGoals({ [key]: value });
-    };
+    }, [onUpdateGoals]);
 
     // 1. Annual Billing Target
     const monthlyGoal = monthlyNeed / (commissionSplit / 100);
@@ -386,31 +327,42 @@ function ObjectivesDashboard({
                         manualCaptationRatio={manualCaptationRatio || 2.5}
                         isManualRatio={isManualCaptationRatio || false}
                         onUpdate={updateGoal}
+                        realCriticalNumber={realCriticalNumber}
                     />
 
-                    {/* 3. LIFESTYLE CHECKS */}
-                    <div className={`rounded-3xl p-6 border shadow-sm ${isGoalSufficient ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
-                        <h3 className={`text-xs font-bold uppercase mb-4 flex items-center ${isGoalSufficient ? 'text-emerald-800' : 'text-rose-800'}`}>
-                            <Calculator size={14} className="mr-2" /> Validación Financiera
-                        </h3>
-                        <div className="flex justify-between items-center mb-2 text-sm">
-                            <span className="text-black/50">Tu Ingreso Neto ({commissionSplit}%):</span>
-                            <span className="font-bold">{formatCurrency(projectedNetIncome)}</span>
-                        </div>
-                        <div className="flex justify-between items-center text-sm border-t border-black/5 pt-2 mt-2">
-                            <span className="text-black/50">Costo de Vida Anual:</span>
-                            <span className="font-bold">{formatCurrency(annualLifestyleCost)}</span>
-                        </div>
-                        {!isGoalSufficient && (
-                            <div className="mt-3 text-xs text-rose-600 bg-rose-100 p-2 rounded-lg text-center font-bold animate-pulse">
-                                ⚠️ Tu meta no cubre tus costos. Aumenta la facturación.
-                            </div>
-                        )}
-                    </div>
                 </div>
 
+
                 {/* RIGHT COL: EXECUTION & RESULTS */}
-                <div className="lg:col-span-8 flex flex-col gap-10">
+                <div className="lg:col-span-8 flex flex-col gap-6">
+
+                    {/* 0. FINANCIAL VALIDATION (Moved here) */}
+                    <div className={`rounded-3xl p-6 border shadow-sm ${isGoalSufficient ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
+                        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                            <div className="flex items-center gap-2">
+                                <div className={`p-2 rounded-lg ${isGoalSufficient ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                    <Calculator size={18} />
+                                </div>
+                                <div>
+                                    <h3 className={`text-sm font-bold uppercase ${isGoalSufficient ? 'text-emerald-800' : 'text-rose-800'}`}>
+                                        Validación Financiera
+                                    </h3>
+                                    {!isGoalSufficient && <p className="text-xs text-rose-600 font-bold">⚠️ Meta insuficiente para costos.</p>}
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-8">
+                                <div className="text-right">
+                                    <span className="block text-[10px] uppercase text-black/50 font-bold">Tu Ingreso Neto</span>
+                                    <span className="block text-lg font-black text-[#364649]">{formatCurrency(projectedNetIncome)}</span>
+                                </div>
+                                <div className="text-right">
+                                    <span className="block text-[10px] uppercase text-black/50 font-bold">Costo Vida</span>
+                                    <span className="block text-lg font-bold text-[#364649]/60">{formatCurrency(annualLifestyleCost)}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
                     {/* A. WEEKLY MISSION (Consolidated) */}
                     <div>

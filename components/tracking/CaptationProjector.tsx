@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
-import { Target, Calculator, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Target, Calculator, AlertCircle, CheckCircle2, TrendingUp } from 'lucide-react';
+import { DebouncedInput } from '../DebouncedInput';
 
 interface CaptationProjectorProps {
     captationRatio: number;
@@ -11,6 +12,7 @@ interface CaptationProjectorProps {
     manualCaptationRatio: number;
     isManualRatio: boolean;
     onUpdate: (key: string, value: any) => void;
+    realCriticalNumber: number; // For Alert comparison
 }
 
 export default function CaptationProjector({
@@ -20,7 +22,8 @@ export default function CaptationProjector({
     goalPeriod,
     manualCaptationRatio,
     isManualRatio,
-    onUpdate
+    onUpdate,
+    realCriticalNumber
 }: CaptationProjectorProps) {
     // const [goalQty, setGoalQty] = useState(2); // REMOVED
     // const [goalPeriod, setGoalPeriod] = useState<'month' | 'quarter'>('month'); // REMOVED
@@ -35,6 +38,13 @@ export default function CaptationProjector({
     const preListingsNeeded = goalQty * finalRatio;
     const weeklyPreListingsNeeded = preListingsNeeded / (months * 4);
 
+    // Alert Logic: If Captation Goal requires more PLs than the global Critical Number (PL+PB)
+    // This is a rough check but helpful. realCriticalNumber is TOTAL ACTIVITY. 
+    // If weeklyPreListingsNeeded > realCriticalNumber, something is off (Goal too high or Billing too low).
+    // Let's use a threshold, e.g., if PL needed is > 80% of Total activity, warn? 
+    // Or simpler: If PL needed > Real Critical Number, it's mathematically impossible/inconsistent if PB > 0.
+    const isGoalDesaligned = weeklyPreListingsNeeded > realCriticalNumber;
+
     return (
         <div className="bg-white border border-[#364649]/10 rounded-3xl p-6 shadow-xl relative overflow-hidden">
             <h2 className="text-lg font-bold mb-4 flex items-center text-[#364649]">
@@ -46,18 +56,12 @@ export default function CaptationProjector({
                 <div className="flex gap-4">
                     <div className="flex-1">
                         <label className="block text-[10px] font-bold uppercase text-[#364649]/50 mb-1">Meta Captaciones</label>
-                        <input
-                            type="text"
-                            inputMode="decimal"
-                            value={String(goalQty).replace(/^0+/, '')}
-                            placeholder="0"
-                            onChange={(e) => {
-                                const val = e.target.value;
-                                if (val === '' || /^\d*$/.test(val)) {
-                                    onUpdate('captationGoalQty', Number(val) || 0);
-                                }
-                            }}
+                        <label className="block text-[10px] font-bold uppercase text-[#364649]/50 mb-1">Meta Captaciones</label>
+                        <DebouncedInput
+                            value={goalQty}
+                            onChange={(val) => onUpdate('captationGoalQty', val)}
                             className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-[#364649] font-bold"
+                            placeholder="0"
                         />
                     </div>
                     <div className="flex-1">
@@ -87,16 +91,9 @@ export default function CaptationProjector({
 
                     {isManualRatio ? (
                         <div className="relative">
-                            <input
-                                type="text"
-                                inputMode="decimal"
+                            <DebouncedInput
                                 value={manualCaptationRatio}
-                                onChange={(e) => {
-                                    const val = e.target.value;
-                                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                        onUpdate('manualCaptationRatio', Number(val) || 0);
-                                    }
-                                }}
+                                onChange={(val) => onUpdate('manualCaptationRatio', val)}
                                 className="w-full bg-white border border-[#AA895F] rounded-lg px-3 py-2 text-sm text-[#364649] font-bold"
                             />
                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#364649]/40">: 1</span>
@@ -135,7 +132,24 @@ export default function CaptationProjector({
                         <span className="text-2xl font-black text-[#AA895F]">{weeklyPreListingsNeeded.toFixed(1)}</span>
                     </div>
                 </div>
+
+                {/* ALERTS */}
+                {isGoalDesaligned && (
+                    <div className="bg-orange-50 border border-orange-200 p-3 rounded-xl mt-4 animate-pulse">
+                        <div className="flex items-start gap-2 text-orange-700">
+                            <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                            <div>
+                                <p className="text-xs font-bold leading-tight mb-1">¡Alerta de Coherencia!</p>
+                                <p className="text-[10px] leading-tight opacity-90">
+                                    Esta meta requiere más actividad (PL) de la que tu facturación proyecta como necesaria ({realCriticalNumber.toFixed(1)} total).
+                                    Aumenta tu facturación objetivo o ajusta esta meta.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
 }
+
