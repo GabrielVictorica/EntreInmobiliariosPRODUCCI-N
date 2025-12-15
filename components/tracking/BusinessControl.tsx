@@ -142,7 +142,7 @@ export default function BusinessControl({
 
                 {/* TRANSACTIONS */}
                 <KpiCard
-                    label="Transacciones"
+                    label="Transacciones (Puntas)"
                     value={metrics.transactionsDone.toString()}
                     target={metrics.transactionsNeeded.toFixed(1)}
                     icon={<CheckCircle2 size={20} />}

@@ -55,6 +55,7 @@ import {
   ChevronRight,
   Target,
   Flag,
+  Save, // Added Save Icon
   LayoutDashboard,
   PieChart,
   CalendarDays,
@@ -425,7 +426,7 @@ export default function App() {
   const [session, setSession] = useState<any>(null);
 
   // Navigation State
-  const [view, setView] = useState<'home' | 'dashboard' | 'form' | 'properties-list' | 'property-form' | 'buyer-clients-list' | 'buyer-client-form' | 'buyer-searches-list' | 'buyer-search-form' | 'visits-list' | 'visit-form' | 'my-week' | 'objectives' | 'closings' | 'calendar'>('home');
+  const [view, setView] = useState<'home' | 'dashboard' | 'form' | 'properties-list' | 'property-form' | 'buyer-clients-list' | 'buyer-client-form' | 'buyer-searches-list' | 'buyer-search-form' | 'visits-list' | 'visit-form' | 'my-week' | 'objectives' | 'closings' | 'calendar' | 'metrics-home' | 'metrics-control'>('home');
   const [viewParams, setViewParams] = useState<any>(null);
 
   // Navigation Group State (Collapsible)
@@ -499,11 +500,41 @@ export default function App() {
           exchange_rate: updated.exchangeRate,
           updated_at: new Date()
         }).then(({ error }) => {
-          if (error) console.error("Error saving goals:", error);
+          if (error) console.error("Error saving goals (fire and forget):", error);
         });
       }
       return updated;
     });
+  }, [session]);
+
+  const handleSaveFinancialGoals = useCallback(async (goalsToSave: typeof financialGoals) => {
+    if (!session?.user?.id) return;
+
+    try {
+      const { error } = await supabase.from('user_settings').upsert({
+        user_id: session.user.id,
+        annual_billing: goalsToSave.annualBilling,
+        monthly_need: goalsToSave.monthlyNeed,
+        average_ticket: goalsToSave.averageTicket,
+        commission_split: goalsToSave.commissionSplit,
+        commercial_weeks: goalsToSave.commercialWeeks,
+        manual_ratio: goalsToSave.manualRatio,
+        is_manual_ratio: goalsToSave.isManualRatio,
+        is_manual_ticket: goalsToSave.isManualTicket,
+        exchange_rate: goalsToSave.exchangeRate,
+        updated_at: new Date()
+      });
+
+      if (error) {
+        console.error("Error saving financial goals:", error);
+        alert("Error al guardar la planificación: " + error.message);
+      } else {
+        alert("¡Planificación guardada correctamente!");
+      }
+    } catch (e) {
+      console.error("Unexpected error saving financial goals:", e);
+      alert("Ocurrió un error inesperado al guardar la planificación.");
+    }
   }, [session]);
 
   // --- Auth & Session Management ---
@@ -996,13 +1027,14 @@ export default function App() {
       // HOME
       // HOME
       case 'home':
-      case 'metrics':
+      case 'metrics-home':
+      case 'metrics-control':
         const historicalAvgTicket = closingLogs.length > 0
           ? closingLogs.reduce((sum, log) => sum + log.salePrice, 0) / closingLogs.length
           : 0;
 
         return <MetricsWrapper
-          selectedTab={view === 'home' ? 'home' : 'control'}
+          selectedTab={view === 'metrics-home' ? 'home' : 'control'}
           financialGoals={financialGoals}
           onUpdateGoals={handleUpdateFinancialGoals}
           // Data Props
@@ -1018,7 +1050,6 @@ export default function App() {
             return `${d.getFullYear()}-${week}`;
           })).size}
           totalClosings={closingLogs.length}
-          totalSides={currentTotalSides} // Passing sides count
           captationStats={{
             preListings: activities.filter(a => a.type === 'pre_listing').length,
             listings: properties.length
@@ -1031,43 +1062,10 @@ export default function App() {
             setView(view);
             if (params) setViewParams(params);
           }}
-          financialGoals={financialGoals}
-          onUpdateGoals={handleUpdateFinancialGoals}
           clients={clients}
           buyers={buyerClients}
           marketingLogs={marketingLogs}
-        />
-        );
-      /* 
-      return <MetricsWrapper
-        currentBilling={currentTotalBilling}
-        currentActivities={currentTotalPLPB}
-        currentRatio={historicalRatio}
-        pipelineValue={pipelineValue}
-        weeksOfData={new Set(activities.map(a => {
-          const d = new Date(a.date);
-          const onejan = new Date(d.getFullYear(), 0, 1);
-          const week = Math.ceil((((d.getTime() - onejan.getTime()) / 86400000) + onejan.getDay() + 1) / 7);
-          return `${d.getFullYear()}-${week}`;
-        })).size}
-        totalClosings={closingLogs.length}
-        captationStats={{
-          preListings: activities.filter(a => a.type === 'pre_listing').length,
-          listings: properties.length
-        }}
-        historicalAverageTicket={historicalAvgTicket}
-        properties={properties}
-        activities={activities}
-        visits={visits}
-        onNavigate={(view, params) => {
-          setView(view);
-          if (params) setViewParams(params);
-        }}
-        clients={clients}
-        buyers={buyerClients}
-        marketingLogs={marketingLogs}
-      />; 
-      */
+        />;
 
       // SELLERS
       case 'dashboard': return <SellersDashboard clients={filteredClients} properties={properties} onNewClient={() => { setEditingClientId(null); setView('form'); }} onEditClient={handleEditClient} onAssignProperty={handleAssignProperty} onEditProperty={handleEditProperty} />;
@@ -1087,310 +1085,317 @@ export default function App() {
 
       // TRAKEO (Objectives, Weekly, Closings)
       case 'my-week':
-  return (
-    <WeeklyDashboard
-      activities={activities}
-      clients={clients}
-      buyers={buyerClients}
-      visits={visits}
-      properties={properties}
-      searches={buyerSearches}
-      initialAction={viewParams?.action}
-      onSaveActivity={handleSaveActivity}
-      onDeleteActivity={handleDeleteActivity}
-      // Pass global handlers for Deep Integration
-      onSaveClient={handleSaveClient}
-      onSaveProperty={handleSaveProperty}
-      onSaveBuyer={handleSaveBuyerClient}
-      onSaveSearch={handleSaveSearch}
-      onSaveVisit={handleSaveVisit}
-    />
-  );
+        return (
+          <WeeklyDashboard
+            activities={activities}
+            clients={clients}
+            buyers={buyerClients}
+            visits={visits}
+            properties={properties}
+            searches={buyerSearches}
+            initialAction={viewParams?.action}
+            onSaveActivity={handleSaveActivity}
+            onDeleteActivity={handleDeleteActivity}
+            // Pass global handlers for Deep Integration
+            onSaveClient={handleSaveClient}
+            onSaveProperty={handleSaveProperty}
+            onSaveBuyer={handleSaveBuyerClient}
+            onSaveSearch={handleSaveSearch}
+            onSaveVisit={handleSaveVisit}
+          />
+        );
       case 'objectives':
-  // Calculate Historical Average Ticket
-  const historicalAverageTicket = closingLogs.length > 0
-    ? closingLogs.reduce((sum, log) => sum + log.salePrice, 0) / closingLogs.length
-    : 0;
+        // Calculate Historical Average Ticket
+        const historicalAverageTicket = closingLogs.length > 0
+          ? closingLogs.reduce((sum, log) => sum + log.salePrice, 0) / closingLogs.length
+          : 0;
 
-  return <ObjectivesDashboard
-    key="objectives-dashboard"
-    currentBilling={currentTotalBilling}
-    currentActivities={currentTotalPLPB}
-    currentRatio={historicalRatio} // Use Historic Ratio for planning
-    pipelineValue={pipelineValue} // Pass the "Lag" Fix
-    weeksOfData={new Set(activities.map(a => {
-      const d = new Date(a.date); // a.date is YYYY-MM-DD
-      // Simple unique week identifier: Year-WeekNumber
-      const onejan = new Date(d.getFullYear(), 0, 1);
-      const week = Math.ceil((((d.getTime() - onejan.getTime()) / 86400000) + onejan.getDay() + 1) / 7);
-      return `${d.getFullYear()}-${week}`;
-    })).size}
-    totalClosings={closingLogs.length}
-    captationStats={{
-      preListings: activities.filter(a => a.type === 'pre_listing').length,
-      listings: properties.length // Using total properties as proxy for successful captations
-    }}
-    historicalAverageTicket={historicalAverageTicket}
-    // New Props
-    properties={properties}
-    activities={activities}
-    visits={visits}
-    onNavigate={(view, params) => {
-      setView(view);
-      if (params) setViewParams(params);
-    }}
-    financialGoals={financialGoals}
-    onUpdateGoals={handleUpdateFinancialGoals}
-  />;
+        const weeksOfData = new Set(activities.map(a => {
+          const d = new Date(a.date); // a.date is YYYY-MM-DD
+          // Simple unique week identifier: Year-WeekNumber
+          const onejan = new Date(d.getFullYear(), 0, 1);
+          const week = Math.ceil((((d.getTime() - onejan.getTime()) / 86400000) + onejan.getDay() + 1) / 7);
+          return `${d.getFullYear()}-${week}`;
+        })).size;
+
+        const totalClosings = closingLogs.length;
+
+        const captationStats = {
+          preListings: activities.filter(a => a.type === 'pre_listing').length,
+          listings: properties.length // Using total properties as proxy for successful captations
+        };
+
+        return <ObjectivesDashboard
+          key="objectives-dashboard"
+          currentBilling={currentTotalBilling}
+          currentActivities={currentTotalPLPB}
+          currentRatio={historicalRatio} // Use Historic Ratio for planning
+          pipelineValue={pipelineValue} // Pass the "Lag" Fix
+          weeksOfData={weeksOfData}
+          totalClosings={totalClosings}
+          captationStats={captationStats}
+          historicalAverageTicket={historicalAverageTicket}
+          // New Props
+          properties={properties}
+          activities={activities}
+          visits={visits}
+          onNavigate={(view, params) => {
+            setView(view);
+            if (params) setViewParams(params);
+          }}
+          financialGoals={financialGoals}
+          onUpdateGoals={handleUpdateFinancialGoals}
+          onSaveGoals={handleSaveFinancialGoals}
+        />;
       case 'closings':
-  return <ClosingsDashboard
-    closings={closingLogs}
-    activities={activities}
-    properties={properties}
-    clients={clients}
-    buyers={buyerClients}
-    onAddClosing={handleSaveClosing}
-    onDeleteClosing={handleDeleteClosing}
-    exchangeRate={financialGoals.exchangeRate || 1000}
-    onUpdateExchangeRate={(rate) => handleUpdateFinancialGoals({ exchangeRate: rate })}
-  />;
+        return <ClosingsDashboard
+          closings={closingLogs}
+          activities={activities}
+          properties={properties}
+          clients={clients}
+          buyers={buyerClients}
+          onAddClosing={handleSaveClosing}
+          onDeleteClosing={handleDeleteClosing}
+          exchangeRate={financialGoals.exchangeRate || 1000}
+          onUpdateExchangeRate={(rate) => handleUpdateFinancialGoals({ exchangeRate: rate })}
+        />;
 
       case 'calendar':
-  return <CalendarDashboard activities={activities} visits={visits} />;
+        return <CalendarDashboard activities={activities} visits={visits} />;
 
       default: return null;
-}
+    }
   };
 
-const toggleGroup = (group: 'metrics' | 'sellers' | 'buyers' | 'trakeo') => {
-  setExpandedGroup(expandedGroup === group ? null : group);
-};
+  const toggleGroup = (group: 'metrics' | 'sellers' | 'buyers' | 'trakeo') => {
+    setExpandedGroup(expandedGroup === group ? null : group);
+  };
 
-// --- ERROR BOUNDARY COMPONENT ---
-class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: any, errorInfo: any }> {
-  constructor(props: any) {
-    super(props);
-    this.state = { hasError: false, error: null, errorInfo: null };
-  }
-  public state = { hasError: false, error: null, errorInfo: null };
+  // --- ERROR BOUNDARY COMPONENT ---
+  class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: any, errorInfo: any }> {
+    constructor(props: any) {
+      super(props);
+      this.state = { hasError: false, error: null, errorInfo: null };
+    }
+    public state = { hasError: false, error: null, errorInfo: null };
 
-  static getDerivedStateFromError(error: any) {
-    return { hasError: true };
-  }
-
-  componentDidCatch(error: any, errorInfo: any) {
-    this.setState({ error, errorInfo });
-    console.error("Uncaught error:", error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="flex flex-col items-center justify-center h-screen bg-red-50 p-8 text-[#364649]">
-          <h1 className="text-3xl font-bold mb-4 text-red-600">¡Ups! Algo salió mal.</h1>
-          <p className="mb-4 text-lg">La aplicación ha encontrado un error inesperado.</p>
-          <div className="bg-white p-6 rounded-xl shadow-lg border border-red-200 max-w-2xl w-full overflow-auto">
-            <details className="whitespace-pre-wrap">
-              <summary className="font-bold cursor-pointer mb-2 text-red-500">Ver detalles del error</summary>
-              <p className="font-mono text-xs text-red-800 mb-4">{this.state.error && this.state.error.toString()}</p>
-              <p className="font-mono text-xs text-gray-500">{this.state.errorInfo && this.state.errorInfo.componentStack}</p>
-            </details>
-          </div>
-          <button
-            onClick={() => window.location.reload()}
-            className="mt-8 px-6 py-3 bg-[#364649] text-white rounded-xl font-bold hover:bg-[#2C3A3D] transition-colors"
-          >
-            Recargar Aplicación
-          </button>
-        </div>
-      );
+    static getDerivedStateFromError(error: any) {
+      return { hasError: true };
     }
 
-    return this.props.children;
+    componentDidCatch(error: any, errorInfo: any) {
+      this.setState({ error, errorInfo });
+      console.error("Uncaught error:", error, errorInfo);
+    }
+
+    render() {
+      if (this.state.hasError) {
+        return (
+          <div className="flex flex-col items-center justify-center h-screen bg-red-50 p-8 text-[#364649]">
+            <h1 className="text-3xl font-bold mb-4 text-red-600">¡Ups! Algo salió mal.</h1>
+            <p className="mb-4 text-lg">La aplicación ha encontrado un error inesperado.</p>
+            <div className="bg-white p-6 rounded-xl shadow-lg border border-red-200 max-w-2xl w-full overflow-auto">
+              <details className="whitespace-pre-wrap">
+                <summary className="font-bold cursor-pointer mb-2 text-red-500">Ver detalles del error</summary>
+                <p className="font-mono text-xs text-red-800 mb-4">{this.state.error && this.state.error.toString()}</p>
+                <p className="font-mono text-xs text-gray-500">{this.state.errorInfo && this.state.errorInfo.componentStack}</p>
+              </details>
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-8 px-6 py-3 bg-[#364649] text-white rounded-xl font-bold hover:bg-[#2C3A3D] transition-colors"
+            >
+              Recargar Aplicación
+            </button>
+          </div>
+        );
+      }
+
+      return this.props.children;
+    }
   }
-}
 
-// --- RENDER LOGIN OR APP ---
-if (!session) {
-  return <Login />;
-}
+  // --- RENDER LOGIN OR APP ---
+  if (!session) {
+    return <Login />;
+  }
 
-// Wrap content in ErrorBoundary
-return (
-  <ErrorBoundary>
-    <div className="flex h-screen overflow-hidden bg-[#E0D8CC] text-[#364649] selection:bg-[#AA895F]/30">
+  // Wrap content in ErrorBoundary
+  return (
+    <ErrorBoundary>
+      <div className="flex h-screen overflow-hidden bg-[#E0D8CC] text-[#364649] selection:bg-[#AA895F]/30">
 
-      {/* Sidebar */}
-      <aside className="w-20 lg:w-64 flex-shrink-0 z-20 flex flex-col justify-between bg-[#364649] text-white transition-all duration-300 shadow-xl">
-        <div>
-          <div className="h-24 flex items-center justify-center lg:justify-start lg:px-6 border-b border-white/10">
-            <div className="w-10 h-10 bg-[#AA895F] rounded-xl flex items-center justify-center shadow-lg shadow-black/20 transform hover:scale-105 transition-transform duration-300 shrink-0">
-              <Building2 className="text-white" size={22} />
+        {/* Sidebar */}
+        <aside className="w-20 lg:w-64 flex-shrink-0 z-20 flex flex-col justify-between bg-[#364649] text-white transition-all duration-300 shadow-xl">
+          <div>
+            <div className="h-24 flex items-center justify-center lg:justify-start lg:px-6 border-b border-white/10">
+              <div className="w-10 h-10 bg-[#AA895F] rounded-xl flex items-center justify-center shadow-lg shadow-black/20 transform hover:scale-105 transition-transform duration-300 shrink-0">
+                <Building2 className="text-white" size={22} />
+              </div>
+              <div className="hidden lg:flex flex-col ml-3 justify-center">
+                <span className="font-semibold text-lg text-[#E0D8CC] leading-none">Entre</span>
+                <span className="text-[10px] font-bold text-[#AA895F] uppercase tracking-[0.2em] leading-tight mt-1">Inmobiliarios</span>
+              </div>
             </div>
-            <div className="hidden lg:flex flex-col ml-3 justify-center">
-              <span className="font-semibold text-lg text-[#E0D8CC] leading-none">Entre</span>
-              <span className="text-[10px] font-bold text-[#AA895F] uppercase tracking-[0.2em] leading-tight mt-1">Inmobiliarios</span>
-            </div>
+
+            <nav className="mt-8 px-4 space-y-2">
+
+              {/* METRICS GROUP */}
+              <div>
+                <button onClick={() => toggleGroup('metrics')} className="w-full flex items-center justify-between p-3 rounded-xl mb-1 text-slate-300 hover:bg-white/10 hover:text-white transition-all duration-300 group">
+                  <div className="flex items-center"><BarChart3 size={20} className="group-hover:text-white transition-colors" /><span className="hidden lg:block ml-3 text-sm font-bold uppercase tracking-wider">Métricas</span></div>
+                  <div className="hidden lg:block">{expandedGroup === 'metrics' ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</div>
+                </button>
+                <div className={`overflow-hidden transition-all duration-300 ${expandedGroup === 'metrics' ? 'max-h-32 opacity-100' : 'max-h-0 opacity-0'}`}>
+                  <div className="ml-0 lg:ml-4 border-l border-white/10 pl-2 space-y-1 mt-1">
+                    <NavItem icon={<LayoutDashboard size={18} />} label="Resumen" active={view === 'home' || view === 'metrics-home'} onClick={() => setView('metrics-home')} small />
+                    <NavItem icon={<PieChart size={18} />} label="Control Negocio" active={view === 'metrics-control'} onClick={() => setView('metrics-control')} small />
+                  </div>
+                </div>
+              </div>
+
+              <div><NavItem icon={<Calendar size={20} />} label="Calendario" active={view === 'calendar'} onClick={() => setView('calendar')} /></div>
+
+              {/* VENDEDORES GROUP */}
+              <div>
+                <button onClick={() => toggleGroup('sellers')} className="w-full flex items-center justify-between p-3 rounded-xl mb-1 text-slate-300 hover:bg-white/10 hover:text-white transition-all duration-300 group">
+                  <div className="flex items-center"><Users size={20} className="group-hover:text-white transition-colors" /><span className="hidden lg:block ml-3 text-sm font-bold uppercase tracking-wider">Vendedores</span></div>
+                  <div className="hidden lg:block">{expandedGroup === 'sellers' ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</div>
+                </button>
+                <div className={`overflow-hidden transition-all duration-300 ${expandedGroup === 'sellers' ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
+                  <div className="ml-0 lg:ml-4 border-l border-white/10 pl-2 space-y-1 mt-1">
+                    <NavItem icon={<Users size={18} />} label="Mis Clientes" active={view === 'dashboard' || view === 'form'} onClick={() => setView('dashboard')} small />
+                    <NavItem icon={<Building2 size={18} />} label="Propiedades" active={view === 'properties-list' || view === 'property-form'} onClick={() => setView('properties-list')} small />
+                  </div>
+                </div>
+              </div>
+
+              {/* COMPRADORES GROUP */}
+              <div>
+                <button onClick={() => toggleGroup('buyers')} className="w-full flex items-center justify-between p-3 rounded-xl mb-1 text-slate-300 hover:bg-white/10 hover:text-white transition-all duration-300 group">
+                  <div className="flex items-center"><UserCheck size={20} className="group-hover:text-white transition-colors" /><span className="hidden lg:block ml-3 text-sm font-bold uppercase tracking-wider">Compradores</span></div>
+                  <div className="hidden lg:block">{expandedGroup === 'buyers' ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</div>
+                </button>
+                <div className={`overflow-hidden transition-all duration-300 ${expandedGroup === 'buyers' ? 'max-h-48 opacity-100' : 'max-h-0 opacity-0'}`}>
+                  <div className="ml-0 lg:ml-4 border-l border-white/10 pl-2 space-y-1 mt-1">
+                    <NavItem icon={<UserCheck size={18} />} label="Mis Clientes" active={view === 'buyer-clients-list' || view === 'buyer-client-form'} onClick={() => setView('buyer-clients-list')} small />
+                    <NavItem icon={<Wallet size={18} />} label="Búsquedas Activas" active={view === 'buyer-searches-list' || view === 'buyer-search-form'} onClick={() => setView('buyer-searches-list')} small />
+                    <NavItem icon={<Calendar size={18} />} label="Visitas" active={view === 'visits-list' || view === 'visit-form'} onClick={() => setView('visits-list')} small />
+                  </div>
+                </div>
+              </div>
+
+              {/* TRAKEO GROUP */}
+              <div>
+                <button onClick={() => toggleGroup('trakeo')} className="w-full flex items-center justify-between p-3 rounded-xl mb-1 text-slate-300 hover:bg-white/10 hover:text-white transition-all duration-300 group">
+                  <div className="flex items-center"><Target size={20} className="group-hover:text-white transition-colors" /><span className="hidden lg:block ml-3 text-sm font-bold uppercase tracking-wider">Trakeo</span></div>
+                  <div className="hidden lg:block">{expandedGroup === 'trakeo' ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</div>
+                </button>
+                <div className={`overflow-hidden transition-all duration-300 ${expandedGroup === 'trakeo' ? 'max-h-48 opacity-100' : 'max-h-0 opacity-0'}`}>
+                  <div className="ml-0 lg:ml-4 border-l border-white/10 pl-2 space-y-1 mt-1">
+                    <NavItem icon={<CalendarDays size={18} />} label="Mí Semana" active={view === 'my-week'} onClick={() => setView('my-week')} small />
+                    <NavItem icon={<DollarSign size={18} />} label="Cierres" active={view === 'closings'} onClick={() => setView('closings')} small />
+                    <NavItem icon={<Flag size={18} />} label="Objetivos" active={view === 'objectives'} onClick={() => setView('objectives')} small />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 mt-2 border-t border-white/10">
+                <NavItem icon={<Database size={20} />} label="Cargar Datos Prueba" active={false} onClick={handleLoadSeedData} />
+              </div>
+            </nav>
           </div>
 
-          <nav className="mt-8 px-4 space-y-2">
-
-            {/* METRICS GROUP */}
-            <div>
-              <button onClick={() => toggleGroup('metrics')} className="w-full flex items-center justify-between p-3 rounded-xl mb-1 text-slate-300 hover:bg-white/10 hover:text-white transition-all duration-300 group">
-                <div className="flex items-center"><BarChart3 size={20} className="group-hover:text-white transition-colors" /><span className="hidden lg:block ml-3 text-sm font-bold uppercase tracking-wider">Métricas</span></div>
-                <div className="hidden lg:block">{expandedGroup === 'metrics' ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</div>
+          <div className="mb-8 px-4">
+            <NavItem icon={<HelpCircle size={20} />} label="Ayuda" active={false} />
+            <div className="mt-2">
+              <button onClick={handleLogout} className="flex items-center w-full p-3 rounded-xl text-slate-300 hover:bg-white/10 hover:text-white transition-all duration-300 group">
+                <LogOut size={20} className="group-hover:text-[#AA895F] transition-colors duration-300" />
+                <span className="hidden lg:block ml-3 text-sm font-medium">Cerrar Sesión</span>
               </button>
-              <div className={`overflow-hidden transition-all duration-300 ${expandedGroup === 'metrics' ? 'max-h-32 opacity-100' : 'max-h-0 opacity-0'}`}>
-                <div className="ml-0 lg:ml-4 border-l border-white/10 pl-2 space-y-1 mt-1">
-                  <NavItem icon={<LayoutDashboard size={18} />} label="Resumen" active={view === 'home' || view === 'metrics-home'} onClick={() => setView('metrics-home')} small />
-                  <NavItem icon={<PieChart size={18} />} label="Control Negocio" active={view === 'metrics-control'} onClick={() => setView('metrics-control')} small />
+            </div>
+          </div>
+        </aside>
+
+        {/* Main Content */}
+        <main className="flex-1 overflow-y-auto relative no-scrollbar">
+          <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-[#364649]/10 px-8 py-4 flex justify-between items-center shadow-sm">
+            {/* Header Content Omitted for brevity, assuming standard header */}
+            <div className="flex items-center gap-4">
+              <h2 className="text-xl font-bold text-[#364649] capitalize">
+                {view === 'home' ? 'Panel Principal' :
+                  view.includes('buyer') ? 'Gestión Compradores' :
+                    view.includes('visit') ? 'Gestión Visitas' :
+                      view.replace('-', ' ')}
+              </h2>
+            </div>
+
+            {/* Header Content */}
+            <div className="flex items-center gap-4">
+              <h2 className="text-xl font-bold text-[#364649] capitalize">
+                {view === 'home' ? 'Panel Principal' :
+                  view.includes('buyer') ? 'Gestión Compradores' :
+                    view.includes('visit') ? 'Gestión Visitas' :
+                      view.replace('-', ' ')}
+              </h2>
+            </div>
+
+            {/* MOTHER USER: Team Filter */}
+            {isMother && (
+              <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-[#364649]/10 shadow-sm ml-4">
+                <Users size={16} className="text-[#AA895F]" />
+                <span className="text-xs font-bold text-[#364649]/50 uppercase tracking-wider mr-1">Equipo:</span>
+                <div className="relative">
+                  <select
+                    value={selectedTeamUser || ''}
+                    onChange={(e) => setSelectedTeamUser(e.target.value || null)}
+                    className="appearance-none bg-transparent font-bold text-sm text-[#364649] pr-6 cursor-pointer focus:outline-none"
+                  >
+                    <option value="">Vista Global (Todos)</option>
+                    {teamUsers.map(u => (
+                      <option key={u.id} value={u.id}>{u.email}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={14} className="absolute right-0 top-1/2 -translate-y-1/2 text-[#364649]/40 pointer-events-none" />
+                </div>
+              </div>
+            )}
+
+
+            <div className="flex items-center gap-4 ml-auto">
+              <button className="p-2 rounded-full hover:bg-gray-100 text-[#364649]/60 transition-colors relative">
+                <Bell size={20} />
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
+              </button>
+              <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
+                <div className="text-right hidden md:block">
+                  <p className="text-sm font-bold text-[#364649]">{session.user.email?.split('@')[0]}</p>
+                  <p className="text-xs text-[#AA895F] font-bold tracking-wider">{isMother ? 'DIRECTOR (MADRE)' : 'AGENTE INMOBILIARIO'}</p>
+                </div>
+                <div className="w-10 h-10 rounded-full bg-[#364649] text-white flex items-center justify-center font-bold text-sm shadow-md cursor-pointer hover:bg-[#AA895F] transition-colors" onClick={handleLogout}>
+                  <LogOut size={16} className="ml-0.5" />
                 </div>
               </div>
             </div>
+          </header>
 
-            <div><NavItem icon={<Calendar size={20} />} label="Calendario" active={view === 'calendar'} onClick={() => setView('calendar')} /></div>
-
-            {/* VENDEDORES GROUP */}
-            <div>
-              <button onClick={() => toggleGroup('sellers')} className="w-full flex items-center justify-between p-3 rounded-xl mb-1 text-slate-300 hover:bg-white/10 hover:text-white transition-all duration-300 group">
-                <div className="flex items-center"><Users size={20} className="group-hover:text-white transition-colors" /><span className="hidden lg:block ml-3 text-sm font-bold uppercase tracking-wider">Vendedores</span></div>
-                <div className="hidden lg:block">{expandedGroup === 'sellers' ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</div>
-              </button>
-              <div className={`overflow-hidden transition-all duration-300 ${expandedGroup === 'sellers' ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
-                <div className="ml-0 lg:ml-4 border-l border-white/10 pl-2 space-y-1 mt-1">
-                  <NavItem icon={<Users size={18} />} label="Mis Clientes" active={view === 'dashboard' || view === 'form'} onClick={() => setView('dashboard')} small />
-                  <NavItem icon={<Building2 size={18} />} label="Propiedades" active={view === 'properties-list' || view === 'property-form'} onClick={() => setView('properties-list')} small />
-                </div>
-              </div>
-            </div>
-
-            {/* COMPRADORES GROUP */}
-            <div>
-              <button onClick={() => toggleGroup('buyers')} className="w-full flex items-center justify-between p-3 rounded-xl mb-1 text-slate-300 hover:bg-white/10 hover:text-white transition-all duration-300 group">
-                <div className="flex items-center"><UserCheck size={20} className="group-hover:text-white transition-colors" /><span className="hidden lg:block ml-3 text-sm font-bold uppercase tracking-wider">Compradores</span></div>
-                <div className="hidden lg:block">{expandedGroup === 'buyers' ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</div>
-              </button>
-              <div className={`overflow-hidden transition-all duration-300 ${expandedGroup === 'buyers' ? 'max-h-48 opacity-100' : 'max-h-0 opacity-0'}`}>
-                <div className="ml-0 lg:ml-4 border-l border-white/10 pl-2 space-y-1 mt-1">
-                  <NavItem icon={<UserCheck size={18} />} label="Mis Clientes" active={view === 'buyer-clients-list' || view === 'buyer-client-form'} onClick={() => setView('buyer-clients-list')} small />
-                  <NavItem icon={<Wallet size={18} />} label="Búsquedas Activas" active={view === 'buyer-searches-list' || view === 'buyer-search-form'} onClick={() => setView('buyer-searches-list')} small />
-                  <NavItem icon={<Calendar size={18} />} label="Visitas" active={view === 'visits-list' || view === 'visit-form'} onClick={() => setView('visits-list')} small />
-                </div>
-              </div>
-            </div>
-
-            {/* TRAKEO GROUP */}
-            <div>
-              <button onClick={() => toggleGroup('trakeo')} className="w-full flex items-center justify-between p-3 rounded-xl mb-1 text-slate-300 hover:bg-white/10 hover:text-white transition-all duration-300 group">
-                <div className="flex items-center"><Target size={20} className="group-hover:text-white transition-colors" /><span className="hidden lg:block ml-3 text-sm font-bold uppercase tracking-wider">Trakeo</span></div>
-                <div className="hidden lg:block">{expandedGroup === 'trakeo' ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</div>
-              </button>
-              <div className={`overflow-hidden transition-all duration-300 ${expandedGroup === 'trakeo' ? 'max-h-48 opacity-100' : 'max-h-0 opacity-0'}`}>
-                <div className="ml-0 lg:ml-4 border-l border-white/10 pl-2 space-y-1 mt-1">
-                  <NavItem icon={<CalendarDays size={18} />} label="Mí Semana" active={view === 'my-week'} onClick={() => setView('my-week')} small />
-                  <NavItem icon={<DollarSign size={18} />} label="Cierres" active={view === 'closings'} onClick={() => setView('closings')} small />
-                  <NavItem icon={<Flag size={18} />} label="Objetivos" active={view === 'objectives'} onClick={() => setView('objectives')} small />
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-4 mt-2 border-t border-white/10">
-              <NavItem icon={<Database size={20} />} label="Cargar Datos Prueba" active={false} onClick={handleLoadSeedData} />
-            </div>
-          </nav>
-        </div>
-
-        <div className="mb-8 px-4">
-          <NavItem icon={<HelpCircle size={20} />} label="Ayuda" active={false} />
-          <div className="mt-2">
-            <button onClick={handleLogout} className="flex items-center w-full p-3 rounded-xl text-slate-300 hover:bg-white/10 hover:text-white transition-all duration-300 group">
-              <LogOut size={20} className="group-hover:text-[#AA895F] transition-colors duration-300" />
-              <span className="hidden lg:block ml-3 text-sm font-medium">Cerrar Sesión</span>
-            </button>
+          <div className="p-8 max-w-7xl mx-auto">
+            {renderContent()}
           </div>
-        </div>
-      </aside>
+        </main>
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-y-auto relative no-scrollbar">
-        <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-[#364649]/10 px-8 py-4 flex justify-between items-center shadow-sm">
-          {/* Header Content Omitted for brevity, assuming standard header */}
-          <div className="flex items-center gap-4">
-            <h2 className="text-xl font-bold text-[#364649] capitalize">
-              {view === 'home' ? 'Panel Principal' :
-                view.includes('buyer') ? 'Gestión Compradores' :
-                  view.includes('visit') ? 'Gestión Visitas' :
-                    view.replace('-', ' ')}
-            </h2>
-          </div>
+        {marketingModalOpen && marketingPropertyId && (
+          <MarketingModal
+            property={properties.find(p => p.id === marketingPropertyId)!}
+            logs={marketingLogs.filter(l => l.propertyId === marketingPropertyId)}
+            onSave={handleSaveMarketing}
+            onClose={() => setMarketingModalOpen(false)}
+          />
+        )}
 
-          {/* Header Content */}
-          <div className="flex items-center gap-4">
-            <h2 className="text-xl font-bold text-[#364649] capitalize">
-              {view === 'home' ? 'Panel Principal' :
-                view.includes('buyer') ? 'Gestión Compradores' :
-                  view.includes('visit') ? 'Gestión Visitas' :
-                    view.replace('-', ' ')}
-            </h2>
-          </div>
-
-          {/* MOTHER USER: Team Filter */}
-          {isMother && (
-            <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-[#364649]/10 shadow-sm ml-4">
-              <Users size={16} className="text-[#AA895F]" />
-              <span className="text-xs font-bold text-[#364649]/50 uppercase tracking-wider mr-1">Equipo:</span>
-              <div className="relative">
-                <select
-                  value={selectedTeamUser || ''}
-                  onChange={(e) => setSelectedTeamUser(e.target.value || null)}
-                  className="appearance-none bg-transparent font-bold text-sm text-[#364649] pr-6 cursor-pointer focus:outline-none"
-                >
-                  <option value="">Vista Global (Todos)</option>
-                  {teamUsers.map(u => (
-                    <option key={u.id} value={u.id}>{u.email}</option>
-                  ))}
-                </select>
-                <ChevronDown size={14} className="absolute right-0 top-1/2 -translate-y-1/2 text-[#364649]/40 pointer-events-none" />
-              </div>
-            </div>
-          )}
-
-
-          <div className="flex items-center gap-4 ml-auto">
-            <button className="p-2 rounded-full hover:bg-gray-100 text-[#364649]/60 transition-colors relative">
-              <Bell size={20} />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
-            </button>
-            <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
-              <div className="text-right hidden md:block">
-                <p className="text-sm font-bold text-[#364649]">{session.user.email?.split('@')[0]}</p>
-                <p className="text-xs text-[#AA895F] font-bold tracking-wider">{isMother ? 'DIRECTOR (MADRE)' : 'AGENTE INMOBILIARIO'}</p>
-              </div>
-              <div className="w-10 h-10 rounded-full bg-[#364649] text-white flex items-center justify-center font-bold text-sm shadow-md cursor-pointer hover:bg-[#AA895F] transition-colors" onClick={handleLogout}>
-                <LogOut size={16} className="ml-0.5" />
-              </div>
-            </div>
-          </div>
-        </header>
-
-        <div className="p-8 max-w-7xl mx-auto">
-          {renderContent()}
-        </div>
-      </main>
-
-      {marketingModalOpen && marketingPropertyId && (
-        <MarketingModal
-          property={properties.find(p => p.id === marketingPropertyId)!}
-          logs={marketingLogs.filter(l => l.propertyId === marketingPropertyId)}
-          onSave={handleSaveMarketing}
-          onClose={() => setMarketingModalOpen(false)}
-        />
-      )}
-
-    </div>
-  </ErrorBoundary>
-);
+      </div>
+    </ErrorBoundary>
+  );
 }
 
 const NavItem = ({ icon, label, active, onClick, disabled, small }: any) => (
