@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { ClosingRecord, PropertyRecord, Currency, BuyerClientRecord } from '../../types';
-import { Save, DollarSign, Calendar, X, Building2, User, Globe, Users } from 'lucide-react';
+import { Save, DollarSign, Calendar, X, Building2, User, Globe, Users, ArrowRightLeft, Percent } from 'lucide-react';
 
 interface ClosingFormProps {
     properties: PropertyRecord[];
@@ -9,10 +9,13 @@ interface ClosingFormProps {
     onSave: (record: ClosingRecord) => void;
     onCancel: () => void;
     commissionSplit: number;
+    initialData?: ClosingRecord | null;
+    exchangeRate?: number;
 }
 
-const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, onCancel, commissionSplit }) => {
+const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, onCancel, commissionSplit, initialData, exchangeRate = 1000 }) => {
     // Modes
+    const [operationType, setOperationType] = useState<'venta' | 'alquiler'>('venta');
     const [isManualProperty, setIsManualProperty] = useState(false);
     const [isManualBuyer, setIsManualBuyer] = useState(false);
 
@@ -24,42 +27,136 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
     const [manualBuyer, setManualBuyer] = useState('');
 
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+
+    // Financials
     const [salePrice, setSalePrice] = useState('');
     const [currency, setCurrency] = useState<Currency>('USD');
+
+    // Commission Logic
     const [sides, setSides] = useState<1 | 2>(1);
-    const [commissionPercent, setCommissionPercent] = useState('3');
+
+    // Sub-Split Logic (The "% of the split")
+    const [subSplitPercent, setSubSplitPercent] = useState('100');
 
     // Shared Deal State
     const [isShared, setIsShared] = useState(false);
-    const [customBilling, setCustomBilling] = useState(''); // Allows overriding calculated billing
 
-    // Calculations
-    const priceNum = Number(salePrice) || 0;
-    const commPercentNum = Number(commissionPercent) || 0;
+    // Rental Specific
+    const [rentalTotalBilling, setRentalTotalBilling] = useState(''); // This acts as the final "Gross Billing"
+    const [rentalMonthlyPrice, setRentalMonthlyPrice] = useState('');
+    const [rentalMonths, setRentalMonths] = useState(24); // Default 24 months (2 years)
+    const [rentalOwnerFee, setRentalOwnerFee] = useState('');
+    const [rentalTenantFee, setRentalTenantFee] = useState('');
 
-    // Logic: If shared, assume 50% split of the commission unless custom billing is entered
-    const grossCommission = priceNum * (commPercentNum / 100);
-    const calculatedBilling = isShared ? grossCommission * 0.5 : grossCommission;
-
-    // Final Billing to use (Custom overrides Auto)
-    const finalTotalBilling = customBilling ? Number(customBilling) : calculatedBilling;
-    const agentHonorarium = finalTotalBilling * (commissionSplit / 100);
-
-    // Update custom billing placeholder when inputs change if user hasn't typed manually yet
+    // Effect: Auto-calculate fees when Price or Duration changes (only if fields are empty or auto-mode)
+    // To allow manual overrides, we only update if the user hasn't heavily modified them? 
+    // Easier approach: Update them always but let user override. If user types in Fees, we break the link? 
+    // Let's make it simple: Change Price/Months -> Updates defaults. User can overwrite Fees.
     useEffect(() => {
-        if (!customBilling) {
-            // Just let the placeholder handle visualization, logic uses calculatedBilling
+        if (operationType === 'alquiler') {
+            const price = Number(rentalMonthlyPrice);
+            if (price > 0) {
+                // Owner: 2% of Total Contract
+                const totalContract = price * rentalMonths;
+                const owner = totalContract * 0.02;
+                setRentalOwnerFee(owner.toFixed(0));
+
+                // Tenant: 1 Month (usually)
+                const tenant = price;
+                setRentalTenantFee(tenant.toFixed(0));
+            }
         }
-    }, [salePrice, commissionPercent, isShared]);
+    }, [rentalMonthlyPrice, rentalMonths, operationType]);
+
+    // Effect: Update Total Billing -> Sum of Fees
+    useEffect(() => {
+        if (operationType === 'alquiler') {
+            const total = Number(rentalOwnerFee) + Number(rentalTenantFee);
+            setRentalTotalBilling(total.toString());
+        }
+    }, [rentalOwnerFee, rentalTenantFee, operationType]);
+
+    // Initialize Data for Edit Mode
+    useEffect(() => {
+        if (initialData) {
+            setOperationType(initialData.operationType || 'venta');
+            setDate(initialData.date);
+            setCurrency(initialData.currency);
+            setSalePrice(initialData.salePrice.toString());
+            setSides(initialData.sides);
+            setIsShared(initialData.isShared);
+
+            // Sub Split
+            setSubSplitPercent(initialData.subSplitPercent ? initialData.subSplitPercent.toString() : '100');
+
+            // Property
+            if (initialData.manualProperty) {
+                setIsManualProperty(true);
+                setManualProperty(initialData.manualProperty);
+            } else if (initialData.propertyId) {
+                setIsManualProperty(false);
+                setPropertyId(initialData.propertyId);
+            }
+
+            // Buyer
+            if (initialData.manualBuyer) {
+                setIsManualBuyer(true);
+                setManualBuyer(initialData.manualBuyer);
+            } else if (initialData.buyerClientId) {
+                setIsManualBuyer(false);
+                setBuyerClientId(initialData.buyerClientId);
+            }
+
+            // Rental specific
+            if (initialData.operationType === 'alquiler') {
+                setRentalTotalBilling(initialData.totalBilling.toString());
+            }
+        }
+    }, [initialData]);
+
+
+    // --- CALCULATIONS ---
+    const priceNum = Number(salePrice) || 0;
+
+    // 1. Commission Percent Rule: 1 Side = 3%, 2 Sides = 6% (Fixed)
+    // Only for Sales. For Rentals, it's manual.
+    const commissionPercentRule = sides * 3;
+
+    // 2. Gross Commission (Total Billing for the Office before Splits)
+    let grossBilling = 0;
+
+    if (operationType === 'venta') {
+        const grossCommissionTotal = priceNum * (commissionPercentRule / 100);
+        // If shared, we usually get 50%, BUT user said logic is "sides". 
+        // If I have 1 side (3%), that IS my billing. If I have 2 sides (6%), that IS my billing.
+        // "Shared" toggle might just be for informational purposes or if the breakdown is weird.
+        // Re-reading user request: "The 3% cannot be modified... The transactions mean the amount of sides I have".
+        // So: Billing = Price * (3% * Sides).
+        grossBilling = grossCommissionTotal;
+
+        // CORRECTION: User said "When I input shared deal, sometimes... we charge 75% of that split".
+        // Let's stick to the rule: Billing = Price * FixedPercent.
+    } else {
+        // Alquiler: Manual input
+        grossBilling = Number(rentalTotalBilling);
+    }
+
+    // 3. Agent Honorarium Calculation
+    // Logic: Billing * (SplitBase / 100) * (SubSplit / 100)
+    const splitBase = commissionSplit / 100; // e.g. 0.45
+    const subSplit = Number(subSplitPercent) / 100; // e.g. 0.75
+
+    const agentHonorarium = grossBilling * splitBase * subSplit;
+
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!isManualProperty && !propertyId) return alert("Selecciona una propiedad o ingresa una manual.");
         if (isManualProperty && !manualProperty) return alert("Ingresa la dirección de la propiedad.");
-        if (!salePrice) return alert("Ingresa el precio de cierre.");
+        if (!salePrice && operationType === 'venta') return alert("Ingresa el precio de cierre.");
 
         const record: ClosingRecord = {
-            id: `CL-${Date.now()}`,
+            id: initialData?.id || `CL-${Date.now()}`,
             propertyId: isManualProperty ? undefined : propertyId,
             manualProperty: isManualProperty ? manualProperty : undefined,
             buyerClientId: isManualBuyer ? undefined : buyerClientId,
@@ -68,17 +165,35 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
             agentName: 'Yo',
             salePrice: priceNum,
             currency,
-            commissionPercent: commPercentNum,
+            commissionPercent: commissionPercentRule,
             sides,
             isShared,
-            totalBilling: finalTotalBilling,
+            totalBilling: grossBilling,
             agentHonorarium,
-            createdAt: new Date().toISOString()
+            createdAt: initialData?.createdAt || new Date().toISOString(),
+            operationType,
+            subSplitPercent: Number(subSplitPercent),
+            exchangeRateSnapshot: exchangeRate
         };
         onSave(record);
     };
 
     const selectedProperty = properties.find(p => p.id === propertyId);
+
+    // Helper for currency conversion display
+    const getEstimatedUSD = (amount: number, curr: Currency) => {
+        if (curr === 'USD') return amount;
+        return amount / exchangeRate;
+    };
+
+    // Effect: Sync Sale Price (Total Contract) for Rentals
+    useEffect(() => {
+        if (operationType === 'alquiler') {
+            const price = Number(rentalMonthlyPrice);
+            const total = price * rentalMonths;
+            setSalePrice(total > 0 ? total.toString() : '');
+        }
+    }, [rentalMonthlyPrice, rentalMonths, operationType]);
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in-up">
@@ -86,8 +201,9 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
 
                 <div className="flex justify-between items-start mb-6">
                     <div>
-                        <h2 className="text-2xl font-bold text-[#364649] flex items-center">
-                            <DollarSign className="mr-2 text-[#AA895F]" size={28} /> Registrar Cierre
+                        <h2 className="text-2xl font-bold text-[#364649] flex items-center capitalize">
+                            <DollarSign className="mr-2 text-[#AA895F]" size={28} />
+                            {initialData ? 'Editar Cierre' : 'Registrar Cierre'}
                         </h2>
                         <p className="text-[#364649]/60 text-sm">Registra la operación para tus métricas.</p>
                     </div>
@@ -96,10 +212,28 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
 
                 <form onSubmit={handleSubmit} className="space-y-6">
 
+                    {/* OPERATION TYPE SELECTOR */}
+                    <div className="flex bg-gray-100 p-1 rounded-xl">
+                        <button
+                            type="button"
+                            onClick={() => setOperationType('venta')}
+                            className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${operationType === 'venta' ? 'bg-white text-[#AA895F] shadow-sm' : 'text-[#364649]/50 hover:text-[#364649]'}`}
+                        >
+                            Venta
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setOperationType('alquiler')}
+                            className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${operationType === 'alquiler' ? 'bg-white text-[#AA895F] shadow-sm' : 'text-[#364649]/50 hover:text-[#364649]'}`}
+                        >
+                            Alquiler
+                        </button>
+                    </div>
+
                     {/* PROPERTY SECTION */}
                     <div className="space-y-2">
                         <div className="flex justify-between items-center">
-                            <label className="block text-xs font-bold text-[#364649]/60 uppercase">Propiedad Cerrada</label>
+                            <label className="block text-xs font-bold text-[#364649]/60 uppercase">Propiedad</label>
                             <button
                                 type="button"
                                 onClick={() => { setIsManualProperty(!isManualProperty); setPropertyId(''); setManualProperty(''); }}
@@ -146,7 +280,7 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
                     {/* BUYER SECTION */}
                     <div className="space-y-2">
                         <div className="flex justify-between items-center">
-                            <label className="block text-xs font-bold text-[#364649]/60 uppercase">Cliente Comprador</label>
+                            <label className="block text-xs font-bold text-[#364649]/60 uppercase">Cliente (Inquilino/Comprador)</label>
                             <button
                                 type="button"
                                 onClick={() => { setIsManualBuyer(!isManualBuyer); setBuyerClientId(''); setManualBuyer(''); }}
@@ -164,7 +298,7 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
                                     value={manualBuyer}
                                     onChange={e => setManualBuyer(e.target.value)}
                                     className="w-full pl-10 pr-3 py-3 bg-white border border-[#AA895F]/30 rounded-xl text-sm outline-none focus:border-[#AA895F]"
-                                    placeholder="Nombre del comprador..."
+                                    placeholder="Nombre del cliente..."
                                 />
                             </div>
                         ) : (
@@ -175,7 +309,7 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
                                     onChange={e => setBuyerClientId(e.target.value)}
                                     className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-10 pr-4 py-3 text-sm font-medium outline-none focus:border-[#AA895F]"
                                 >
-                                    <option value="">-- Seleccionar Comprador --</option>
+                                    <option value="">-- Seleccionar Cliente --</option>
                                     {buyers.map(b => (
                                         <option key={b.id} value={b.id}>{b.name} - {b.type.replace('_', ' ')}</option>
                                     ))}
@@ -184,6 +318,7 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
                         )}
                     </div>
 
+                    {/* FINANCIALS GRID */}
                     <div className="grid grid-cols-2 gap-6">
                         <div>
                             <label className="block text-xs font-bold text-[#364649]/60 uppercase mb-1">Fecha de Firma</label>
@@ -193,112 +328,209 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
                             </div>
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-[#364649]/60 uppercase mb-1">Precio Cierre (Oferta)</label>
-                            <div className="flex">
-                                <select value={currency} onChange={e => setCurrency(e.target.value as Currency)} className="bg-[#364649] text-white rounded-l-xl px-3 text-xs font-bold outline-none">
-                                    <option value="USD">USD</option>
-                                    <option value="ARS">ARS</option>
-                                </select>
-                                <input
-                                    type="text"
-                                    inputMode="decimal"
-                                    value={salePrice}
-                                    onChange={e => {
-                                        const val = e.target.value;
-                                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                            setSalePrice(val);
-                                        }
-                                    }}
-                                    className="w-full pl-3 pr-3 py-3 bg-white border border-gray-200 rounded-r-xl text-sm font-bold outline-none focus:border-[#AA895F]"
-                                    placeholder="0.00"
-                                    required
-                                />
-                            </div>
+                            {operationType === 'venta' ? (
+                                <>
+                                    <label className="block text-xs font-bold text-[#364649]/60 uppercase mb-1">Precio Venta (Real)</label>
+                                    <div className="flex">
+                                        <select value={currency} onChange={e => setCurrency(e.target.value as Currency)} className="bg-[#364649] text-white rounded-l-xl px-3 text-xs font-bold outline-none">
+                                            <option value="USD">USD</option>
+                                            <option value="ARS">ARS</option>
+                                        </select>
+                                        <input
+                                            type="text"
+                                            inputMode="decimal"
+                                            value={salePrice}
+                                            onChange={e => {
+                                                const val = e.target.value;
+                                                if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                                    setSalePrice(val);
+                                                }
+                                            }}
+                                            className="w-full pl-3 pr-3 py-3 bg-white border border-gray-200 rounded-r-xl text-sm font-bold outline-none focus:border-[#AA895F]"
+                                            placeholder="0.00"
+                                            required
+                                        />
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <label className="block text-xs font-bold text-[#364649]/60 uppercase mb-1">Moneda del Contrato</label>
+                                    <select
+                                        value={currency}
+                                        onChange={e => setCurrency(e.target.value as Currency)}
+                                        className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold text-[#364649] outline-none focus:border-[#AA895F]"
+                                    >
+                                        <option value="USD">Dólar (USD)</option>
+                                        <option value="ARS">Peso Argentino (ARS)</option>
+                                    </select>
+                                </>
+                            )}
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-6">
-                        <div>
-                            <label className="block text-xs font-bold text-[#364649]/60 uppercase mb-1">Puntas (Lados)</label>
-                            <div className="flex gap-2">
-                                <button type="button" onClick={() => setSides(1)} className={`flex-1 py-2 rounded-lg text-xs font-bold border ${sides === 1 ? 'bg-[#364649] text-white border-[#364649]' : 'bg-white text-[#364649] hover:bg-gray-50'}`}>1 Punta</button>
-                                <button type="button" onClick={() => setSides(2)} className={`flex-1 py-2 rounded-lg text-xs font-bold border ${sides === 2 ? 'bg-[#AA895F] text-white border-[#AA895F]' : 'bg-white text-[#364649] hover:bg-gray-50'}`}>2 Puntas</button>
-                            </div>
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-[#364649]/60 uppercase mb-1">% Comisión Total</label>
-                            <div className="relative">
-                                <input
-                                    type="text"
-                                    inputMode="decimal"
-                                    value={commissionPercent}
-                                    onChange={e => {
-                                        const val = e.target.value;
-                                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                            setCommissionPercent(val);
-                                        }
-                                    }}
-                                    className="w-full pl-3 pr-8 py-3 bg-white border border-gray-200 rounded-xl text-sm font-bold outline-none focus:border-[#AA895F]"
-                                />
-                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[#364649]/40 text-xs font-bold">%</span>
-                            </div>
-                        </div>
-                    </div>
+                    {/* COMMISSION LOGIC SECTION */}
+                    <div className="bg-[#AA895F]/5 p-6 rounded-2xl border border-[#AA895F]/20 space-y-4">
+                        <h3 className="text-sm font-bold text-[#AA895F] uppercase flex items-center">
+                            <DollarSign size={16} className="mr-1" /> Cálculo de Honorarios
+                        </h3>
 
-                    {/* SHARED DEAL TOGGLE */}
-                    <div className="bg-[#364649]/5 p-4 rounded-xl border border-[#364649]/10">
-                        <div className="flex justify-between items-center mb-3">
-                            <label className="flex items-center cursor-pointer">
-                                <div className={`w-10 h-5 rounded-full p-0.5 transition-colors duration-300 ${isShared ? 'bg-[#AA895F]' : 'bg-[#364649]/20'}`}>
-                                    <div className={`w-4 h-4 bg-white rounded-full shadow-sm transform transition-transform duration-300 ${isShared ? 'translate-x-5' : 'translate-x-0'}`} />
+                        {/* VENTA LOGIC */}
+                        {operationType === 'venta' && (
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-[#364649]/60 uppercase mb-1">Cantidad de Puntas</label>
+                                    <div className="flex gap-2">
+                                        <button type="button" onClick={() => setSides(1)} className={`flex-1 py-3 rounded-xl text-xs font-bold border transition-all ${sides === 1 ? 'bg-[#364649] text-white border-[#364649] shadow-md' : 'bg-white text-[#364649] hover:bg-gray-50'}`}>
+                                            1 Punta (3%)
+                                        </button>
+                                        <button type="button" onClick={() => setSides(2)} className={`flex-1 py-3 rounded-xl text-xs font-bold border transition-all ${sides === 2 ? 'bg-[#AA895F] text-white border-[#AA895F] shadow-md' : 'bg-white text-[#364649] hover:bg-gray-50'}`}>
+                                            2 Puntas (6%)
+                                        </button>
+                                    </div>
                                 </div>
-                                <span className="ml-3 text-sm font-bold text-[#364649] flex items-center">
-                                    <Users size={16} className="mr-1" /> ¿Operación Compartida?
-                                </span>
-                            </label>
-                        </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-[#364649]/60 uppercase mb-1">Comisión Total (Auto)</label>
+                                    <div className="w-full bg-gray-100 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold text-[#364649] opacity-70">
+                                        {commissionPercentRule}%
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
-                        {isShared && (
-                            <div className="animate-fade-in-up">
-                                <label className="block text-[10px] font-bold text-[#364649]/60 uppercase mb-1">
-                                    Facturación Total para TU Oficina (Editar si es necesario)
+                        {/* ALQUILER LOGIC */}
+                        {operationType === 'alquiler' && (
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-[#364649]/60 uppercase mb-1">Valor Alquiler (Mensual)</label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#364649]/40 text-xs font-bold">{currency}</span>
+                                            <input
+                                                type="text"
+                                                inputMode="decimal"
+                                                value={rentalMonthlyPrice}
+                                                onChange={e => {
+                                                    const val = e.target.value;
+                                                    if (val === '' || /^\d*\.?\d*$/.test(val)) setRentalMonthlyPrice(val);
+                                                }}
+                                                className="w-full pl-12 pr-3 py-2 bg-white border border-gray-200 rounded-xl text-sm font-bold outline-none focus:border-[#AA895F]"
+                                                placeholder="0.00"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-[#364649]/60 uppercase mb-1">Duración (Meses)</label>
+                                        <input
+                                            type="number"
+                                            value={rentalMonths}
+                                            onChange={e => setRentalMonths(Number(e.target.value))}
+                                            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm font-bold outline-none focus:border-[#AA895F]"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 flex justify-between items-center">
+                                    <span className="text-xs text-[#364649]/60 font-medium">Valor Total del Contrato:</span>
+                                    <span className="text-sm font-bold text-[#364649]">{currency} {(Number(rentalMonthlyPrice) * rentalMonths).toLocaleString()}</span>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-dashed border-gray-300">
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-[#364649]/50 uppercase mb-1">Hon. Propietario (2%)</label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#364649]/30 text-[10px]">{currency}</span>
+                                            <input
+                                                type="text"
+                                                inputMode="decimal"
+                                                value={rentalOwnerFee}
+                                                onChange={e => {
+                                                    const val = e.target.value;
+                                                    if (val === '' || /^\d*\.?\d*$/.test(val)) setRentalOwnerFee(val);
+                                                }}
+                                                className="w-full pl-10 pr-2 py-2 bg-white border border-[#AA895F]/20 rounded-lg text-xs font-bold text-[#364649] focus:border-[#AA895F] outline-none"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-[#364649]/50 uppercase mb-1">Hon. Inquilino (Variable)</label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#364649]/30 text-[10px]">{currency}</span>
+                                            <input
+                                                type="text"
+                                                inputMode="decimal"
+                                                value={rentalTenantFee}
+                                                onChange={e => {
+                                                    const val = e.target.value;
+                                                    if (val === '' || /^\d*\.?\d*$/.test(val)) setRentalTenantFee(val);
+                                                }}
+                                                className="w-full pl-10 pr-2 py-2 bg-white border border-[#AA895F]/20 rounded-lg text-xs font-bold text-[#364649] focus:border-[#AA895F] outline-none"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-between items-center pt-2">
+                                    <span className="text-xs font-bold text-[#364649]">Facturación Total (Aprox):</span>
+                                    <span className="text-sm font-bold text-[#364649] underline decoration-[#AA895F]">{currency} {(Number(rentalOwnerFee) + Number(rentalTenantFee)).toLocaleString()}</span>
+                                </div>
+                                {currency === 'ARS' && (
+                                    <p className="text-[10px] text-[#364649]/50 italic text-right">
+                                        Eq: USD {Math.round((Number(rentalOwnerFee) + Number(rentalTenantFee)) / exchangeRate).toLocaleString()}
+                                    </p>
+                                )}
+                            </div>
+                        )}
+
+                        {/* SPLIT CONFIG */}
+                        <div className="pt-4 border-t border-[#AA895F]/10 grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-[10px] font-bold text-[#364649]/50 uppercase mb-1">Tu Split Base</label>
+                                <div className="w-full bg-white/50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold text-[#364649]">
+                                    {commissionSplit}%
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-[#AA895F] uppercase mb-1 flex items-center">
+                                    % Cobrado s/Split <span className="ml-1 bg-[#AA895F]/10 px-1 rounded text-[8px]">AVANZADO</span>
                                 </label>
                                 <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#364649]/40 text-xs font-bold">{currency}</span>
                                     <input
                                         type="text"
                                         inputMode="decimal"
-                                        value={customBilling}
+                                        value={subSplitPercent}
                                         onChange={e => {
                                             const val = e.target.value;
-                                            if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                                setCustomBilling(val);
+                                            if (val === '' || (Number(val) <= 100 && /^\d*\.?\d*$/.test(val))) {
+                                                setSubSplitPercent(val);
                                             }
                                         }}
-                                        placeholder={calculatedBilling.toFixed(0)}
-                                        className="w-full pl-8 pr-3 py-2 bg-white border border-[#AA895F]/30 rounded-lg text-sm font-bold text-[#364649] outline-none focus:border-[#AA895F]"
+                                        className="w-full pl-3 pr-6 py-2 bg-white border border-[#AA895F]/30 rounded-xl text-xs font-bold text-[#364649] outline-none focus:border-[#AA895F]"
                                     />
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[#364649]/40 text-xs font-bold">%</span>
                                 </div>
-                                <p className="text-[10px] text-[#364649]/50 mt-1 italic">
-                                    Por defecto se calcula el 50% de la comisión total. Si el acuerdo fue diferente, ajusta el valor aquí.
-                                </p>
                             </div>
-                        )}
+                        </div>
+
+                        {/* FINAL RESULT */}
+                        <div className="flex justify-between items-center bg-[#364649] text-white p-4 rounded-xl shadow-lg mt-2">
+                            <div className="flex flex-col">
+                                <span className="text-[#AA895F] font-bold uppercase text-[10px] tracking-wider">Honorarios Netos</span>
+                                <span className="text-[10px] text-white/40">
+                                    {operationType === 'venta'
+                                        ? `${sides} Punta(s) × ${commissionPercentRule}%`
+                                        : 'Manual'}
+                                    {' '}× {commissionSplit}% × {subSplitPercent}%
+                                </span>
+                            </div>
+                            <span className="font-bold text-xl">{currency} {agentHonorarium.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                        </div>
                     </div>
 
-                    {/* Final Totals Preview */}
-                    <div className="flex justify-between items-center text-sm border-t border-[#364649]/10 pt-4 mt-2">
-                        <div className="flex flex-col">
-                            <span className="text-[#AA895F] font-bold uppercase text-xs">Tus Honorarios (Neto)</span>
-                            <span className="text-[10px] text-[#364649]/40">Basado en split {commissionSplit}% sobre {currency} {finalTotalBilling.toLocaleString()}</span>
-                        </div>
-                        <span className="font-bold text-[#AA895F] text-2xl">{currency} {agentHonorarium.toLocaleString()}</span>
-                    </div>
 
                     <div className="flex justify-end gap-3 pt-2">
                         <button type="button" onClick={onCancel} className="px-6 py-2 text-[#364649]/60 font-bold hover:text-[#364649]">Cancelar</button>
                         <button type="submit" className="bg-[#364649] text-white px-8 py-3 rounded-xl hover:bg-[#2A3638] font-bold shadow-lg transition-transform hover:-translate-y-1">
-                            Confirmar Cierre
+                            {initialData ? 'Guardar Cambios' : 'Registrar Cierre'}
                         </button>
                     </div>
 

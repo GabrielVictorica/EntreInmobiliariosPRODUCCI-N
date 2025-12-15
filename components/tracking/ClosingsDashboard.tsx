@@ -20,6 +20,7 @@ const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
     exchangeRate, onUpdateExchangeRate
 }) => {
     const [isFormOpen, setIsFormOpen] = useState(false);
+    const [editingClosing, setEditingClosing] = useState<ClosingRecord | null>(null);
     const [commissionSplit, setCommissionSplit] = useState(45);
 
     // Local state for editing rate (debounced)
@@ -78,6 +79,17 @@ const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
     const handleSave = (record: ClosingRecord) => {
         onAddClosing(record);
         setIsFormOpen(false);
+        setEditingClosing(null);
+    };
+
+    const handleEdit = (record: ClosingRecord) => {
+        setEditingClosing(record);
+        setIsFormOpen(true);
+    };
+
+    const handleNew = () => {
+        setEditingClosing(null);
+        setIsFormOpen(true);
     };
 
     const getPropertyName = (closing: ClosingRecord) => {
@@ -135,7 +147,7 @@ const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
                         </div>
                     </div>
                 </div>
-                <button onClick={() => setIsFormOpen(true)} className="btn-hover-effect bg-[#AA895F] text-white px-6 py-3 rounded-xl font-semibold shadow-lg shadow-[#AA895F]/30 flex items-center active:scale-95">
+                <button onClick={handleNew} className="btn-hover-effect bg-[#AA895F] text-white px-6 py-3 rounded-xl font-semibold shadow-lg shadow-[#AA895F]/30 flex items-center active:scale-95">
                     <Plus className="mr-2" size={18} /> Registrar Cierre
                 </button>
             </div>
@@ -152,12 +164,12 @@ const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
                     <div className="absolute top-0 right-0 w-1 h-full bg-[#708F96]"></div>
                     <div className="flex justify-between items-start">
                         <div>
-                            <p className="text-xs font-bold uppercase text-[#364649]/50 mb-1">Total Puntas</p>
+                            <p className="text-xs font-bold uppercase text-[#364649]/50 mb-1">Transacciones (Puntas)</p>
                             <h3 className="text-3xl font-bold text-[#364649]">{totalEnds}</h3>
                         </div>
                         <div className="bg-[#708F96]/10 p-2 rounded-lg text-[#708F96]"><Award size={20} /></div>
                     </div>
-                    <p className="text-[10px] text-[#364649]/40 mt-2">Operaciones: {totalClosings}</p>
+                    <p className="text-[10px] text-[#364649]/40 mt-2">Registros de Cierre: {totalClosings}</p>
                 </div>
                 <div className="bg-white rounded-2xl p-6 shadow-sm border border-[#364649]/5">
                     <div className="flex justify-between items-start">
@@ -252,6 +264,7 @@ const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
                                 <th className="px-4 py-4 font-bold border-r border-white/10 text-center">Puntas</th>
                                 <th className="px-4 py-4 font-bold border-r border-white/10 text-right">Facturación</th>
                                 <th className="px-4 py-4 font-bold bg-[#AA895F] text-right">Honorarios</th>
+                                <th className="px-4 py-4 font-bold text-center">Acciones</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-[#364649]/5">
@@ -295,6 +308,15 @@ const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
                                             <td className="px-4 py-3 text-right font-black text-[#AA895F] bg-[#AA895F]/5">
                                                 {c.currency} {c.agentHonorarium.toLocaleString()}
                                             </td>
+                                            <td className="px-4 py-3 text-center border-t border-[#364649]/5">
+                                                <button
+                                                    onClick={() => handleEdit(c)}
+                                                    className="text-[#364649]/40 hover:text-[#AA895F] transition-colors p-2 hover:bg-[#AA895F]/10 rounded-lg"
+                                                    title="Editar Cierre"
+                                                >
+                                                    <ExternalLink size={16} />
+                                                </button>
+                                            </td>
                                         </tr>
                                     );
                                 })
@@ -323,7 +345,9 @@ const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
                     buyers={buyers}
                     commissionSplit={commissionSplit}
                     onSave={handleSave}
-                    onCancel={() => setIsFormOpen(false)}
+                    onCancel={() => { setIsFormOpen(false); setEditingClosing(null); }}
+                    initialData={editingClosing}
+                    exchangeRate={exchangeRate}
                 />
             )}
 

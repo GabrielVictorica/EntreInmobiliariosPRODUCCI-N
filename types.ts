@@ -341,4 +341,7 @@ export interface ClosingRecord {
   totalBilling: number;
   agentHonorarium: number;
   createdAt: string;
+  operationType: 'venta' | 'alquiler';
+  subSplitPercent: number;
+  exchangeRateSnapshot?: number;
 }

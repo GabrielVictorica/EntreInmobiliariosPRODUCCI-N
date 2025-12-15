@@ -390,7 +390,10 @@ const mapClosingFromDB = (db: any): ClosingRecord => ({
   isShared: db.is_shared,
   totalBilling: db.total_billing,
   agentHonorarium: db.agent_honorarium,
-  createdAt: db.created_at
+  createdAt: db.created_at,
+  operationType: db.operation_type || 'venta',
+  subSplitPercent: db.sub_split_percent || 100,
+  exchangeRateSnapshot: db.exchange_rate_snapshot
 });
 
 const mapClosingToDB = (c: ClosingRecord, activeUserId: string) => ({
@@ -408,7 +411,10 @@ const mapClosingToDB = (c: ClosingRecord, activeUserId: string) => ({
   is_shared: c.isShared,
   total_billing: c.totalBilling,
   agent_honorarium: c.agentHonorarium,
-  created_at: c.createdAt
+  created_at: c.createdAt,
+  operation_type: c.operationType,
+  sub_split_percent: c.subSplitPercent,
+  exchange_rate_snapshot: c.exchangeRateSnapshot
 });
 
 
