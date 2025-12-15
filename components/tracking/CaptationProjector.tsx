@@ -54,11 +54,9 @@ export default function CaptationProjector({
                             onChange={(e) => {
                                 const val = e.target.value;
                                 if (val === '' || /^\d*$/.test(val)) {
-                                    if (val === '' || /^\d*$/.test(val)) {
-                                        onUpdate('captationGoalQty', Number(val) || 0);
-                                    }
+                                    onUpdate('captationGoalQty', Number(val) || 0);
                                 }
-                            }
+                            }}
                             className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-[#364649] font-bold"
                         />
                     </div>
