@@ -302,7 +302,7 @@ function ObjectivesDashboard({
                                     <div className="relative">
                                         <DebouncedInput
                                             id="averageTicket"
-                                            value={isManualTicket ? (averageTicket || 0) : (effectiveAverageTicket || 0)}
+                                            value={Math.round(isManualTicket ? (averageTicket || 0) : (effectiveAverageTicket || 0))}
                                             onChange={(val) => updateGoal('averageTicket', val)}
                                             className={`w-full border rounded-lg px-3 py-2 text-sm text-[#364649] transition-colors ${isManualTicket ? 'bg-white border-gray-200' : 'bg-gray-100 border-transparent text-gray-500'}`}
                                             disabled={!isManualTicket}
