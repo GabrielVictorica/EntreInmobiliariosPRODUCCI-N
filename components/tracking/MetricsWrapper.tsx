@@ -11,6 +11,7 @@ interface MetricsWrapperProps {
     pipelineValue: number;
     weeksOfData: number;
     totalClosings: number;
+    totalSides: number; // Added totalSides
     captationStats: {
         preListings: number;
         listings: number;
@@ -37,6 +38,7 @@ export default function MetricsWrapper({
     pipelineValue,
     weeksOfData,
     totalClosings,
+    totalSides, // Destructure totalSides
     captationStats,
     historicalAverageTicket,
     properties,
@@ -156,7 +158,7 @@ export default function MetricsWrapper({
                     averageTicket={effectiveAverageTicket}
                     metrics={{
                         transactionsNeeded,
-                        transactionsDone: totalClosings,
+                        transactionsDone: totalSides, // Use totalSides here
                         greenMeetingsTarget: 15,
                         greenMeetingsDone: greenMeetingsDone,
                         pocketFees: projectedNetIncome,
