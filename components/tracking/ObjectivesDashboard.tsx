@@ -154,7 +154,12 @@ function ObjectivesDashboard({
     const isGoalSufficient = (annualBillingTarget * (commissionSplit / 100)) >= annualLifestyleCost;
 
     // 2. Transaction Volume Needed
-    const commissionPerSale = averageTicket * 0.03; // Avg 3% per side.
+    // AUTO-CALCULATION FIX: Use live historical data when in Auto mode
+    const effectiveAverageTicket = isManualTicket
+        ? averageTicket
+        : (historicalAverageTicket > 0 ? historicalAverageTicket : averageTicket);
+
+    const commissionPerSale = effectiveAverageTicket * 0.03; // Avg 3% per side.
     const transactionsNeeded = commissionPerSale > 0 ? annualBillingTarget / commissionPerSale : 0;
 
     // 3. THEORETICAL PLAN (Based on Market Standard 6:1)
@@ -187,6 +192,13 @@ function ObjectivesDashboard({
             }
         }
     }, [isSufficientGeneralData, historicalAverageTicket, isManualTicket, isManualRatio]);
+
+    // Sync critical number to localStorage for WeeklyDashboard
+    useEffect(() => {
+        if (realCriticalNumber > 0) {
+            localStorage.setItem('critical_number', realCriticalNumber.toString());
+        }
+    }, [realCriticalNumber]);
 
     // Metrics for Charts
     const generalConversionPercent = effectiveRatio > 0 ? (1 / effectiveRatio) * 100 : 0;
@@ -290,7 +302,7 @@ function ObjectivesDashboard({
                                     <div className="relative">
                                         <DebouncedInput
                                             id="averageTicket"
-                                            value={averageTicket || 0}
+                                            value={isManualTicket ? (averageTicket || 0) : (effectiveAverageTicket || 0)}
                                             onChange={(val) => updateGoal('averageTicket', val)}
                                             className={`w-full border rounded-lg px-3 py-2 text-sm text-[#364649] transition-colors ${isManualTicket ? 'bg-white border-gray-200' : 'bg-gray-100 border-transparent text-gray-500'}`}
                                             disabled={!isManualTicket}

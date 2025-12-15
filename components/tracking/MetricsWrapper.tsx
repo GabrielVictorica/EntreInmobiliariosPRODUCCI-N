@@ -78,9 +78,15 @@ export default function MetricsWrapper({
     const averageTicket = goals.averageTicket;
     const commissionSplit = goals.commissionSplit;
     const commercialWeeks = goals.commercialWeeks;
+    const isManualTicket = goals.isManualTicket;
+
+    // AUTO-CALCULATION FIX: Use live historical data when in Auto mode
+    const effectiveAverageTicket = isManualTicket
+        ? averageTicket
+        : (historicalAverageTicket > 0 ? historicalAverageTicket : averageTicket);
 
     // Calculations based on Shared Goals
-    const commissionPerSale = averageTicket * 0.03;
+    const commissionPerSale = effectiveAverageTicket * 0.03;
     const transactionsNeeded = commissionPerSale > 0 ? annualBillingTarget / commissionPerSale : 0;
 
     // Calibrating Ratio (Same Logic as ObjectivesDashboard)
@@ -147,7 +153,7 @@ export default function MetricsWrapper({
                 <BusinessControl
                     currentBilling={currentBilling}
                     annualBillingTarget={annualBillingTarget}
-                    averageTicket={averageTicket}
+                    averageTicket={effectiveAverageTicket}
                     metrics={{
                         transactionsNeeded,
                         transactionsDone: totalClosings,
