@@ -11,12 +11,13 @@ interface ClosingsDashboardProps {
     clients: ClientRecord[];
     buyers: BuyerClientRecord[];
     onAddClosing: (record: ClosingRecord) => void;
+    onDeleteClosing: (id: string) => void;
     exchangeRate: number;
     onUpdateExchangeRate: (rate: number) => void;
 }
 
 const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
-    closings, activities, properties, clients, buyers, onAddClosing,
+    closings, activities, properties, clients, buyers, onAddClosing, onDeleteClosing,
     exchangeRate, onUpdateExchangeRate
 }) => {
     const [isFormOpen, setIsFormOpen] = useState(false);
@@ -346,6 +347,7 @@ const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
                     commissionSplit={commissionSplit}
                     onSave={handleSave}
                     onCancel={() => { setIsFormOpen(false); setEditingClosing(null); }}
+                    onDelete={onDeleteClosing}
                     initialData={editingClosing}
                     exchangeRate={exchangeRate}
                 />

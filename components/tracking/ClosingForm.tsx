@@ -8,12 +8,13 @@ interface ClosingFormProps {
     buyers: BuyerClientRecord[];
     onSave: (record: ClosingRecord) => void;
     onCancel: () => void;
+    onDelete?: (id: string) => void;
     commissionSplit: number;
     initialData?: ClosingRecord | null;
     exchangeRate?: number;
 }
 
-const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, onCancel, commissionSplit, initialData, exchangeRate = 1000 }) => {
+const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, onCancel, onDelete, commissionSplit, initialData, exchangeRate = 1000 }) => {
     // Modes
     const [operationType, setOperationType] = useState<'venta' | 'alquiler'>('venta');
     const [isManualProperty, setIsManualProperty] = useState(false);
@@ -533,6 +534,23 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
                             {initialData ? 'Guardar Cambios' : 'Registrar Cierre'}
                         </button>
                     </div>
+
+                    {initialData && onDelete && (
+                        <div className="pt-6 border-t border-gray-100 flex justify-center">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (initialData.id) {
+                                        onDelete(initialData.id);
+                                        onCancel(); // Close form after delete request
+                                    }
+                                }}
+                                className="text-red-400 text-xs font-bold hover:text-red-600 flex items-center gap-1 opacity-60 hover:opacity-100 transition-all"
+                            >
+                                <X size={12} /> Eliminar este registro permanentemente
+                            </button>
+                        </div>
+                    )}
 
                 </form>
             </div>

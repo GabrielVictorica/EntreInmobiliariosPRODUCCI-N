@@ -868,59 +868,95 @@ export default function App() {
   };
 
   // --- Handlers (Closings) ---
-  const handleAddClosing = async (closing: ClosingRecord) => {
+  const handleSaveClosing = async (closing: ClosingRecord) => {
     if (!session?.user) return;
 
+    // Check if this is an update or new insert
+    // Ideally we check if ID is not 'CL-...' and exists in our list.
+    // Simplifying: If ID starts with CL-, it's new (unless we are persisting CL- IDs which is bad practice but we handle it).
+    // Actually, `closing` passed here already has the ID from the form.
+    // If it's an EDIT, the form passed the EXISTING ID.
+    // If it's NEW, the form passed `CL-${Date.now()}`.
+
+    const isNew = closing.id.toString().startsWith('CL-');
+
     // Optimistic Update
-    setClosingLogs(prev => [closing, ...prev]);
+    if (isNew) {
+      setClosingLogs(prev => [closing, ...prev]);
+    } else {
+      setClosingLogs(prev => prev.map(c => c.id === closing.id ? closing : c));
+    }
 
     // Save to DB
     try {
-      // Exclude the temporary ID "CL-..." so Supabase generates a valid UUID
+      // Exclude the temporary ID "CL-..." so Supabase generates a valid UUID for NEW records
       const { id, ...closingData } = closing;
-      // Also ensure we map it correctly
       const dbPayload = mapClosingToDB(closing, session.user.id);
 
-      // If ID looks like temp (starts with CL-), remove it from payload
-      if (typeof dbPayload.id === 'string' && dbPayload.id.startsWith('CL-')) {
-        delete (dbPayload as any).id;
+      if (isNew) {
+        // INSERT
+        // Remove temp ID
+        if (typeof dbPayload.id === 'string' && dbPayload.id.startsWith('CL-')) {
+          delete (dbPayload as any).id;
+        }
+        const { data, error } = await supabase.from('closing_logs').insert(dbPayload).select().single();
+        // Update local state with real ID if successful
+        if (data) {
+          const realRecord = mapClosingFromDB(data);
+          setClosingLogs(prev => prev.map(c => c.id === closing.id ? realRecord : c));
+        }
+      } else {
+        // UPDATE
+        await supabase.from('closing_logs').update(dbPayload).eq('id', id);
       }
 
-      await supabase.from('closing_logs').insert(dbPayload);
     } catch (err) {
       console.error("Error saving closing:", err);
-      // Ideally revert optimistic update here on error, but keeping it simple
+      // Ideally revert optimistic update here on error
     }
 
-    // Auto-create Activity 'cierre'
-    const propDesc = closing.manualProperty || (closing.propertyId ? properties.find(p => p.id === closing.propertyId)?.address.street : 'Propiedad');
+    // Auto-create Activity 'cierre' (Only for NEW records to avoid duplication?)
+    // Or should we update the activity too? For now, let's only create on NEW.
+    if (isNew) {
+      const propDesc = closing.manualProperty || (closing.propertyId ? properties.find(p => p.id === closing.propertyId)?.address.street : 'Propiedad');
 
-    // Determine contact name
-    let contactName = closing.manualBuyer || 'Comprador Externo';
-    if (closing.buyerClientId) {
-      const buyer = buyerClients.find(b => b.id === closing.buyerClientId);
-      if (buyer) contactName = buyer.name;
-    }
-
-    const act: ActivityRecord = {
-      id: `act-close-${Date.now()}`,
-      date: closing.date,
-      type: 'cierre',
-      contactName: contactName,
-      contactId: closing.buyerClientId,
-      notes: `Cierre registrado: ${propDesc}. Facturación: ${closing.currency} ${closing.totalBilling.toLocaleString()}`,
-      createdAt: new Date().toISOString()
-    };
-    // Save activity to state and DB
-    handleSaveActivity(act);
-
-
-    // Update property status to 'vendida' ONLY if it's an internal property
-    if (closing.propertyId) {
-      const prop = properties.find(p => p.id === closing.propertyId);
-      if (prop) {
-        handleSaveProperty({ ...prop, status: 'vendida' });
+      // Determine contact name
+      let contactName = closing.manualBuyer || 'Comprador Externo';
+      if (closing.buyerClientId) {
+        const buyer = buyerClients.find(b => b.id === closing.buyerClientId);
+        if (buyer) contactName = buyer.name;
       }
+
+      const act: ActivityRecord = {
+        id: `act-close-${Date.now()}`,
+        date: closing.date,
+        type: 'cierre',
+        contactName: contactName,
+        contactId: closing.buyerClientId,
+        notes: `Cierre registrado: ${propDesc}. Facturación: ${closing.currency} ${closing.totalBilling.toLocaleString()}`,
+        createdAt: new Date().toISOString()
+      };
+      // Save activity to state and DB
+      handleSaveActivity(act);
+
+
+      // Update property status to 'vendida' ONLY if it's an internal property
+      if (closing.propertyId) {
+        const prop = properties.find(p => p.id === closing.propertyId);
+        if (prop) {
+          handleSaveProperty({ ...prop, status: 'vendida' });
+        }
+      }
+    }
+  };
+
+  const handleDeleteClosing = async (id: string) => {
+    if (!confirm('¿Estás seguro de eliminar este cierre? Esta acción no se puede deshacer.')) return;
+    setClosingLogs(prev => prev.filter(c => c.id !== id));
+    try {
+      await supabase.from('closing_logs').delete().eq('id', id);
+    } catch (e) {
+      console.error("Error deleting closing:", e);
     }
   };
 
@@ -1101,7 +1137,8 @@ export default function App() {
           properties={properties}
           clients={clients}
           buyers={buyerClients}
-          onAddClosing={handleAddClosing}
+          onAddClosing={handleSaveClosing}
+          onDeleteClosing={handleDeleteClosing}
           exchangeRate={financialGoals.exchangeRate || 1000}
           onUpdateExchangeRate={(rate) => handleUpdateFinancialGoals({ exchangeRate: rate })}
         />;
