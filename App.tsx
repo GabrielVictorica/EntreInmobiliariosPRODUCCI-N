@@ -478,7 +478,12 @@ export default function App() {
     manualRatio: 6,
     isManualRatio: false,
     isManualTicket: false,
-    exchangeRate: 1000 // Default Manual Exchange Rate
+    exchangeRate: 1100, // Default ARS/USD
+    // Captation Defaults
+    captationGoalQty: 2,
+    captationGoalPeriod: 'month',
+    manualCaptationRatio: 2.5,
+    isManualCaptationRatio: false
   });
 
   const handleUpdateFinancialGoals = useCallback((newGoals: Partial<typeof financialGoals>) => {
@@ -511,17 +516,10 @@ export default function App() {
     if (!session?.user?.id) return;
 
     try {
+      // Save entire object to 'goals' JSONB column for flexibility
       const { error } = await supabase.from('user_settings').upsert({
         user_id: session.user.id,
-        annual_billing: goalsToSave.annualBilling,
-        monthly_need: goalsToSave.monthlyNeed,
-        average_ticket: goalsToSave.averageTicket,
-        commission_split: goalsToSave.commissionSplit,
-        commercial_weeks: goalsToSave.commercialWeeks,
-        manual_ratio: goalsToSave.manualRatio,
-        is_manual_ratio: goalsToSave.isManualRatio,
-        is_manual_ticket: goalsToSave.isManualTicket,
-        exchange_rate: goalsToSave.exchangeRate,
+        goals: goalsToSave,
         updated_at: new Date()
       });
 
@@ -541,12 +539,35 @@ export default function App() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      if (session) {
+        loadAllData();
+        // Load Financial Goals
+        supabase.from('user_settings').select('goals').eq('user_id', session.user.id).single()
+          .then(({ data, error }) => {
+            if (data && data.goals) {
+              setFinancialGoals(prev => ({ ...prev, ...data.goals }));
+            }
+          });
+      }
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      if (session) {
+        loadAllData();
+        // Load Financial Goals on Auth Change
+        supabase.from('user_settings').select('goals').eq('user_id', session.user.id).single()
+          .then(({ data, error }) => {
+            if (data && data.goals) {
+              setFinancialGoals(prev => ({ ...prev, ...data.goals }));
+            }
+          });
+      } else {
+        setClients([]);
+        setProperties([]);
+      }
     });
 
     return () => subscription.unsubscribe();

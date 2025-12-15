@@ -156,6 +156,7 @@ export default function MetricsWrapper({
                     currentBilling={currentBilling}
                     annualBillingTarget={annualBillingTarget}
                     averageTicket={effectiveAverageTicket}
+                    pipelineValue={pipelineValue || 0}
                     metrics={{
                         transactionsNeeded,
                         transactionsDone: totalSides, // Use totalSides here

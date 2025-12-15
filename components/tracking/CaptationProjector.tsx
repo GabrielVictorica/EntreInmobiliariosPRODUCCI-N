@@ -5,13 +5,27 @@ import { Target, Calculator, AlertCircle, CheckCircle2 } from 'lucide-react';
 interface CaptationProjectorProps {
     captationRatio: number;
     isSufficientData: boolean;
+    // Lifted State
+    goalQty: number;
+    goalPeriod: 'month' | 'quarter';
+    manualCaptationRatio: number;
+    isManualRatio: boolean;
+    onUpdate: (key: string, value: any) => void;
 }
 
-export default function CaptationProjector({ captationRatio, isSufficientData }: CaptationProjectorProps) {
-    const [goalQty, setGoalQty] = useState(2); // Default 2 listings
-    const [goalPeriod, setGoalPeriod] = useState<'month' | 'quarter'>('month');
-    const [manualCaptationRatio, setManualCaptationRatio] = useState(2.5);
-    const [isManualRatio, setIsManualRatio] = useState(false);
+export default function CaptationProjector({
+    captationRatio,
+    isSufficientData,
+    goalQty,
+    goalPeriod,
+    manualCaptationRatio,
+    isManualRatio,
+    onUpdate
+}: CaptationProjectorProps) {
+    // const [goalQty, setGoalQty] = useState(2); // REMOVED
+    // const [goalPeriod, setGoalPeriod] = useState<'month' | 'quarter'>('month'); // REMOVED
+    // const [manualCaptationRatio, setManualCaptationRatio] = useState(2.5); // REMOVED
+    // const [isManualRatio, setIsManualRatio] = useState(false); // REMOVED
 
     // Calculations
     const months = goalPeriod === 'month' ? 1 : 3;
@@ -40,9 +54,11 @@ export default function CaptationProjector({ captationRatio, isSufficientData }:
                             onChange={(e) => {
                                 const val = e.target.value;
                                 if (val === '' || /^\d*$/.test(val)) {
-                                    setGoalQty(Number(val) || 0);
+                                    if (val === '' || /^\d*$/.test(val)) {
+                                        onUpdate('captationGoalQty', Number(val) || 0);
+                                    }
                                 }
-                            }}
+                            }
                             className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-[#364649] font-bold"
                         />
                     </div>
@@ -50,7 +66,7 @@ export default function CaptationProjector({ captationRatio, isSufficientData }:
                         <label className="block text-[10px] font-bold uppercase text-[#364649]/50 mb-1">Período</label>
                         <select
                             value={goalPeriod}
-                            onChange={(e) => setGoalPeriod(e.target.value as any)}
+                            onChange={(e) => onUpdate('captationGoalPeriod', e.target.value)}
                             className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-[#364649]"
                         >
                             <option value="month">Mensual</option>
@@ -64,7 +80,7 @@ export default function CaptationProjector({ captationRatio, isSufficientData }:
                     <div className="flex justify-between items-center mb-1">
                         <label className="block text-[10px] font-bold uppercase text-[#364649]/50">Ratio Conversión PL : C</label>
                         <button
-                            onClick={() => setIsManualRatio(!isManualRatio)}
+                            onClick={() => onUpdate('isManualCaptationRatio', !isManualRatio)}
                             className={`text-[8px] px-1.5 py-0.5 rounded uppercase font-bold tracking-wider transition-colors ${isManualRatio ? 'bg-[#AA895F] text-white' : 'bg-gray-200 text-gray-500 hover:bg-gray-300'}`}
                         >
                             {isManualRatio ? 'Manual' : 'Auto'}
@@ -80,7 +96,7 @@ export default function CaptationProjector({ captationRatio, isSufficientData }:
                                 onChange={(e) => {
                                     const val = e.target.value;
                                     if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                        setManualCaptationRatio(Number(val) || 0);
+                                        onUpdate('manualCaptationRatio', Number(val) || 0);
                                     }
                                 }}
                                 className="w-full bg-white border border-[#AA895F] rounded-lg px-3 py-2 text-sm text-[#364649] font-bold"

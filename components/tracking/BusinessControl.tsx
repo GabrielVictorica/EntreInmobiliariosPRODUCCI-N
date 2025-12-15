@@ -19,6 +19,7 @@ interface BusinessControlProps {
     currentBilling: number;
     annualBillingTarget: number;
     averageTicket: number;
+    pipelineValue: number; // New Prop
     metrics: {
         transactionsNeeded: number;
         transactionsDone: number; // calculated from closings
@@ -42,6 +43,7 @@ export default function BusinessControl({
     currentBilling,
     annualBillingTarget,
     averageTicket,
+    pipelineValue,
     metrics,
     todayAlerts,
     onNavigateToWeek,
@@ -109,7 +111,7 @@ export default function BusinessControl({
                     <div className="mt-4 pt-4 border-t border-gray-100">
                         <div className="flex justify-between items-center text-sm">
                             <span className="text-[#364649]/70">Valor Pipeline (Est.)</span>
-                            <span className="font-bold text-[#AA895F]">$ TODO</span> {/* Placeholder, maybe pass pipelineValue? */}
+                            <span className="font-bold text-[#AA895F]">{formatCurrency(pipelineValue)}</span>
                         </div>
                     </div>
                 </div>
@@ -195,6 +197,18 @@ export default function BusinessControl({
                     </p>
                 </div>
 
+            </div>
+
+            {/* 3. LATENT VALUE CARD (Moved from Objectives) */}
+            <div className="bg-[#1e293b] text-white rounded-3xl p-8 shadow-xl relative overflow-hidden">
+                <div className="flex items-center gap-3 mb-2">
+                    <div className="bg-white/10 p-2 rounded-lg text-blue-300"><DollarSign size={20} /></div>
+                    <h3 className="text-lg font-bold">Valor Latente del Negocio</h3>
+                </div>
+                <div className="mt-4">
+                    <span className="text-5xl font-black text-white block mb-1">{formatCurrency(pipelineValue)}</span>
+                    <span className="text-xs font-bold uppercase text-white/40 tracking-wider">Pipeline Ponderado (30% Stock + 20% Búsquedas)</span>
+                </div>
             </div>
         </div>
     );

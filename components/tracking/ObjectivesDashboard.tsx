@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import {
     Flag,
+    Save, // Added Save Icon
     Target,
     BarChart3,
     TrendingUp,
@@ -124,10 +125,12 @@ function ObjectivesDashboard({
     visits = [],
     onNavigate,
     financialGoals,
-    onUpdateGoals
+    onUpdateGoals,
+    onSaveGoals
 }: ObjectivesDashboardProps & {
     financialGoals: any;
     onUpdateGoals: (goals: any) => void;
+    onSaveGoals: (goals: any) => void;
 }) {
 
     // --- SHARED STATE FROM PROPS ---
@@ -139,7 +142,12 @@ function ObjectivesDashboard({
         commercialWeeks,
         manualRatio,
         isManualRatio,
-        isManualTicket
+        isManualTicket,
+        // Captation
+        captationGoalQty,
+        captationGoalPeriod,
+        manualCaptationRatio,
+        isManualCaptationRatio
     } = financialGoals;
 
     // Handlers for updates
@@ -232,6 +240,13 @@ function ObjectivesDashboard({
                     <h1 className="text-3xl font-bold text-[#364649] tracking-tight">Planificación Anual</h1>
                     <p className="text-[#364649]/60 text-sm font-medium">Define tus metas y ajusta tu plan.</p>
                 </div>
+                <button
+                    onClick={() => onSaveGoals(financialGoals)}
+                    className="flex items-center gap-2 bg-[#AA895F] text-white px-4 py-2 rounded-xl font-bold shadow-lg shadow-[#AA895F]/20 hover:bg-[#997a53] transition-all transform hover:scale-105 active:scale-95"
+                >
+                    <Save size={18} />
+                    Guardar Planificación
+                </button>
             </div>
 
 
@@ -363,8 +378,14 @@ function ObjectivesDashboard({
 
                     {/* 2. CAPTATION GOAL PROJECTOR (Moves Here) */}
                     <CaptationProjector
-                        captationRatio={captationRatio > 0 ? captationRatio : 2.5}
+                        captationRatio={captationRatio}
                         isSufficientData={isSufficientCaptationData}
+                        // Persistence Props
+                        goalQty={captationGoalQty || 2}
+                        goalPeriod={captationGoalPeriod || 'month'}
+                        manualCaptationRatio={manualCaptationRatio || 2.5}
+                        isManualRatio={isManualCaptationRatio || false}
+                        onUpdate={updateGoal}
                     />
 
                     {/* 3. LIFESTYLE CHECKS */}
@@ -568,60 +589,7 @@ function ObjectivesDashboard({
                         </div>
                     </div>
 
-                    {/* C. RESULTS (Financials) */}
-                    <div>
-                        <div className="flex items-center gap-3 mb-6">
-                            <div className="bg-[#364649] p-2 rounded-lg text-white shadow-md"><BarChart3 size={20} /></div>
-                            <h3 className="text-xl font-bold text-[#364649]">Resultados</h3>
-                        </div>
 
-                        <div className="bg-[#364649] text-white rounded-3xl p-8 shadow-2xl relative overflow-hidden mb-6">
-                            {/* Background Pattern */}
-                            <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-3xl -mr-20 -mt-20"></div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-10 relative z-10">
-                                <div>
-                                    <h4 className="text-sm font-bold uppercase text-white/50 mb-2">Facturación Bruta</h4>
-                                    <div className="flex items-end gap-3 mb-4">
-                                        <span className="text-4xl font-black text-[#AA895F]">{formatCurrency(currentBilling)}</span>
-                                        <span className="text-sm font-medium text-white/40 mb-1">/ {formatCurrency(annualBillingTarget)}</span>
-                                    </div>
-                                    <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden">
-                                        <div className="h-full bg-[#AA895F] transition-all duration-1000" style={{ width: `${Math.min(billingProgress, 100)}%` }}></div>
-                                    </div>
-                                    <p className="text-xs text-white/40 mt-2 text-right">{billingProgress.toFixed(1)}% de la meta</p>
-                                </div>
-                                <div>
-                                    <h4 className="text-sm font-bold uppercase text-white/50 mb-2">Ingreso Neto (Tú)</h4>
-                                    <div className="flex items-end gap-3 mb-4">
-                                        <span className="text-4xl font-black text-emerald-400">{formatCurrency(projectedNetIncome)}</span>
-                                        <span className="text-sm font-medium text-white/40 mb-1">/ {formatCurrency(targetNetIncome)}</span>
-                                    </div>
-                                    <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden">
-                                        <div className="h-full bg-emerald-500 transition-all duration-1000" style={{ width: `${Math.min(realIncomeProgress, 100)}%` }}></div>
-                                    </div>
-                                    <p className="text-xs text-white/40 mt-2 text-right">{realIncomeProgress.toFixed(1)}%</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* D. PIPELINE VALUE (Latent Business Value) */}
-                        <div className="bg-gradient-to-r from-blue-900 to-slate-900 rounded-3xl p-8 shadow-xl relative overflow-hidden text-white">
-                            <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -mr-16 -mt-16"></div>
-
-                            <div className="flex items-center gap-3 mb-4 relative z-10">
-                                <div className="bg-blue-500/20 p-2 rounded-lg text-blue-300"><DollarSign size={20} /></div>
-                                <h3 className="text-lg font-bold">Valor Latente del Negocio</h3>
-                            </div>
-
-                            <div className="relative z-10">
-                                <p className="text-4xl font-black text-blue-300 mb-1">{formatCurrency(pipelineValue)}</p>
-                                <p className="text-xs text-blue-200/50 uppercase tracking-wider font-bold">
-                                    Pipeline Ponderado (30% Stock + 20% Búsquedas)
-                                </p>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
 
