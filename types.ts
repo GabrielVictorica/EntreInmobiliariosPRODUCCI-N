@@ -344,4 +344,6 @@ export interface ClosingRecord {
   operationType: 'venta' | 'alquiler';
   subSplitPercent: number;
   exchangeRateSnapshot?: number;
+  referralSidesApplied?: 1 | 2; // NEW: How many sides the referral % applies to (default: same as 'sides')
 }
+

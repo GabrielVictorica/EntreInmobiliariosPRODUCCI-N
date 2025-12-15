@@ -393,7 +393,8 @@ const mapClosingFromDB = (db: any): ClosingRecord => ({
   createdAt: db.created_at,
   operationType: db.operation_type || 'venta',
   subSplitPercent: db.sub_split_percent || 100,
-  exchangeRateSnapshot: db.exchange_rate_snapshot
+  exchangeRateSnapshot: db.exchange_rate_snapshot,
+  referralSidesApplied: db.referral_sides_applied || db.sides
 });
 
 const mapClosingToDB = (c: ClosingRecord, activeUserId: string) => ({
@@ -414,7 +415,8 @@ const mapClosingToDB = (c: ClosingRecord, activeUserId: string) => ({
   created_at: c.createdAt,
   operation_type: c.operationType,
   sub_split_percent: c.subSplitPercent,
-  exchange_rate_snapshot: c.exchangeRateSnapshot
+  exchange_rate_snapshot: c.exchangeRateSnapshot,
+  referral_sides_applied: c.referralSidesApplied || c.sides
 });
 
 

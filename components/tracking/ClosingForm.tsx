@@ -39,6 +39,9 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
     // Sub-Split Logic (The "% of the split")
     const [subSplitPercent, setSubSplitPercent] = useState('100');
 
+    // NEW: Referral Scope - How many sides does the referral % apply to?
+    const [referralSidesApplied, setReferralSidesApplied] = useState<1 | 2>(1);
+
     // Shared Deal State
     const [isShared, setIsShared] = useState(false);
 
@@ -77,6 +80,11 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
         }
     }, [rentalOwnerFee, rentalTenantFee, operationType]);
 
+    // Auto-sync referralSidesApplied with sides when sides changes
+    useEffect(() => {
+        setReferralSidesApplied(sides);
+    }, [sides]);
+
     // Initialize Data for Edit Mode
     useEffect(() => {
         if (initialData) {
@@ -89,6 +97,9 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
 
             // Sub Split
             setSubSplitPercent(initialData.subSplitPercent ? initialData.subSplitPercent.toString() : '100');
+
+            // Referral Sides Applied
+            setReferralSidesApplied(initialData.referralSidesApplied || initialData.sides);
 
             // Property
             if (initialData.manualProperty) {
@@ -134,12 +145,29 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
         baseGrossBilling = Number(rentalTotalBilling);
     }
 
-    // 3. Apply Sub-Split to Total Billing
-    // When charging a "referido" (referral), the sub-split percentage (e.g., 75%)
-    // applies to BOTH the total billing AND the agent honorarium.
-    // This works for both 1 punta and 2 puntas operations.
+    // 3. Apply Sub-Split to Total Billing Based on Referral Scope
+    // The sub-split percentage (e.g., 75%) can apply to:
+    // - Only 1 punta (even if operation has 2 puntas)
+    // - Both puntas (2 puntas)
     const subSplit = Number(subSplitPercent) / 100; // e.g. 0.75
-    const grossBilling = baseGrossBilling * subSplit;
+
+    let grossBilling = 0;
+
+    if (operationType === 'venta') {
+        // Calculate the portion affected by referral
+        const referralPortionPercent = (referralSidesApplied * 3) / 100; // 3% or 6%
+        const referralPortion = priceNum * referralPortionPercent;
+
+        // Calculate the non-referral portion (if any)
+        const nonReferralPortionPercent = ((sides - referralSidesApplied) * 3) / 100;
+        const nonReferralPortion = priceNum * nonReferralPortionPercent;
+
+        // Apply sub-split only to referral portion
+        grossBilling = (referralPortion * subSplit) + nonReferralPortion;
+    } else {
+        // For rentals, apply sub-split to entire billing
+        grossBilling = baseGrossBilling * subSplit;
+    }
 
     // 4. Agent Honorarium Calculation
     // Logic: Adjusted Billing * SplitBase
@@ -171,7 +199,8 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
             createdAt: initialData?.createdAt || new Date().toISOString(),
             operationType,
             subSplitPercent: Number(subSplitPercent),
-            exchangeRateSnapshot: exchangeRate
+            exchangeRateSnapshot: exchangeRate,
+            referralSidesApplied: referralSidesApplied
         };
         onSave(record);
     };
@@ -480,33 +509,69 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
                         )}
 
                         {/* SPLIT CONFIG */}
-                        <div className="pt-4 border-t border-[#AA895F]/10 grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-[10px] font-bold text-[#364649]/50 uppercase mb-1">Tu Split Base</label>
-                                <div className="w-full bg-white/50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold text-[#364649]">
-                                    {commissionSplit}%
+                        <div className="pt-4 border-t border-[#AA895F]/10 space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-[10px] font-bold text-[#364649]/50 uppercase mb-1">Tu Split Base</label>
+                                    <div className="w-full bg-white/50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold text-[#364649]">
+                                        {commissionSplit}%
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-[#AA895F] uppercase mb-1 flex items-center">
+                                        % Cobrado s/Split <span className="ml-1 bg-[#AA895F]/10 px-1 rounded text-[8px]">AVANZADO</span>
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            inputMode="decimal"
+                                            value={subSplitPercent}
+                                            onChange={e => {
+                                                const val = e.target.value;
+                                                if (val === '' || (Number(val) <= 100 && /^\d*\.?\d*$/.test(val))) {
+                                                    setSubSplitPercent(val);
+                                                }
+                                            }}
+                                            className="w-full pl-3 pr-6 py-2 bg-white border border-[#AA895F]/30 rounded-xl text-xs font-bold text-[#364649] outline-none focus:border-[#AA895F]"
+                                        />
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[#364649]/40 text-xs font-bold">%</span>
+                                    </div>
                                 </div>
                             </div>
-                            <div>
-                                <label className="block text-[10px] font-bold text-[#AA895F] uppercase mb-1 flex items-center">
-                                    % Cobrado s/Split <span className="ml-1 bg-[#AA895F]/10 px-1 rounded text-[8px]">AVANZADO</span>
-                                </label>
-                                <div className="relative">
-                                    <input
-                                        type="text"
-                                        inputMode="decimal"
-                                        value={subSplitPercent}
-                                        onChange={e => {
-                                            const val = e.target.value;
-                                            if (val === '' || (Number(val) <= 100 && /^\d*\.?\d*$/.test(val))) {
-                                                setSubSplitPercent(val);
-                                            }
-                                        }}
-                                        className="w-full pl-3 pr-6 py-2 bg-white border border-[#AA895F]/30 rounded-xl text-xs font-bold text-[#364649] outline-none focus:border-[#AA895F]"
-                                    />
-                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[#364649]/40 text-xs font-bold">%</span>
+
+                            {/* REFERRAL SCOPE SELECTOR - Only show when sub-split < 100% and operation has 2 sides */}
+                            {Number(subSplitPercent) < 100 && sides === 2 && operationType === 'venta' && (
+                                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                                    <label className="block text-[10px] font-bold text-amber-800 uppercase mb-2">
+                                        ¿El referido se aplica sobre...?
+                                    </label>
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setReferralSidesApplied(1)}
+                                            className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${referralSidesApplied === 1
+                                                    ? 'bg-amber-600 text-white border-amber-600 shadow-md'
+                                                    : 'bg-white text-amber-800 border-amber-300 hover:bg-amber-50'
+                                                }`}
+                                        >
+                                            1 Punta (3%)
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setReferralSidesApplied(2)}
+                                            className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${referralSidesApplied === 2
+                                                    ? 'bg-amber-600 text-white border-amber-600 shadow-md'
+                                                    : 'bg-white text-amber-800 border-amber-300 hover:bg-amber-50'
+                                                }`}
+                                        >
+                                            2 Puntas (6%)
+                                        </button>
+                                    </div>
+                                    <p className="text-[9px] text-amber-700 mt-2 italic">
+                                        Seleccioná sobre cuántas puntas se aplica el {subSplitPercent}%
+                                    </p>
                                 </div>
-                            </div>
+                            )}
                         </div>
 
                         {/* FINAL RESULT */}
