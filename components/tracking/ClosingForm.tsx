@@ -123,31 +123,28 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
     // Only for Sales. For Rentals, it's manual.
     const commissionPercentRule = sides * 3;
 
-    // 2. Gross Commission (Total Billing for the Office before Splits)
-    let grossBilling = 0;
+    // 2. Base Gross Commission (Before Sub-Split)
+    let baseGrossBilling = 0;
 
     if (operationType === 'venta') {
         const grossCommissionTotal = priceNum * (commissionPercentRule / 100);
-        // If shared, we usually get 50%, BUT user said logic is "sides". 
-        // If I have 1 side (3%), that IS my billing. If I have 2 sides (6%), that IS my billing.
-        // "Shared" toggle might just be for informational purposes or if the breakdown is weird.
-        // Re-reading user request: "The 3% cannot be modified... The transactions mean the amount of sides I have".
-        // So: Billing = Price * (3% * Sides).
-        grossBilling = grossCommissionTotal;
-
-        // CORRECTION: User said "When I input shared deal, sometimes... we charge 75% of that split".
-        // Let's stick to the rule: Billing = Price * FixedPercent.
+        baseGrossBilling = grossCommissionTotal;
     } else {
         // Alquiler: Manual input
-        grossBilling = Number(rentalTotalBilling);
+        baseGrossBilling = Number(rentalTotalBilling);
     }
 
-    // 3. Agent Honorarium Calculation
-    // Logic: Billing * (SplitBase / 100) * (SubSplit / 100)
-    const splitBase = commissionSplit / 100; // e.g. 0.45
+    // 3. Apply Sub-Split to Total Billing
+    // When charging a "referido" (referral), the sub-split percentage (e.g., 75%)
+    // applies to BOTH the total billing AND the agent honorarium.
+    // This works for both 1 punta and 2 puntas operations.
     const subSplit = Number(subSplitPercent) / 100; // e.g. 0.75
+    const grossBilling = baseGrossBilling * subSplit;
 
-    const agentHonorarium = grossBilling * splitBase * subSplit;
+    // 4. Agent Honorarium Calculation
+    // Logic: Adjusted Billing * SplitBase
+    const splitBase = commissionSplit / 100; // e.g. 0.45
+    const agentHonorarium = grossBilling * splitBase;
 
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -520,7 +517,7 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
                                     {operationType === 'venta'
                                         ? `${sides} Punta(s) × ${commissionPercentRule}%`
                                         : 'Manual'}
-                                    {' '}× {commissionSplit}% × {subSplitPercent}%
+                                    {' '}× {subSplitPercent}% × {commissionSplit}%
                                 </span>
                             </div>
                             <span className="font-bold text-xl">{currency} {agentHonorarium.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
