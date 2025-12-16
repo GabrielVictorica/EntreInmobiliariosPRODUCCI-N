@@ -1441,29 +1441,7 @@ export default function App() {
         )}
 
 
-        {/* DEBUG PANEL - REMOVE AFTER FIX */}
-        <div className="fixed bottom-4 right-4 bg-black/80 text-white p-4 rounded-xl shadow-2xl z-50 text-xs font-mono max-w-sm">
-          <h3 className="font-bold text-[#AA895F] mb-2 border-b border-white/20 pb-1">PANEL DIAGNÓSTICO</h3>
-          <div className="space-y-1">
-            <p><span className="text-gray-400">User ID:</span> {session?.user?.id?.slice(0, 8)}...</p>
-            <p><span className="text-gray-400">Rol Madre:</span> {isMother ? 'SI' : 'NO'}</p>
-            <div className="border-t border-white/10 my-2 pt-1">
-              <p className="font-bold text-[#AA895F]">Registros Encontrados (Supabase):</p>
-              <div className="grid grid-cols-2 gap-x-4">
-                <span>Propiedades:</span> <span className="text-green-400 font-bold">{properties.length}</span>
-                <span>Clientes:</span> <span className="text-green-400 font-bold">{clients.length}</span>
-                <span>Cierres:</span> <span className="text-green-400 font-bold">{closingLogs.length}</span>
-                <span>Visitas:</span> <span className="text-green-400 font-bold">{visits.length}</span>
-              </div>
-            </div>
-            <p className="text-[10px] text-gray-500 mt-2">
-              Si ves "0" aquí, es problema de la base de datos (Script Rescue). Si ves números pero no en la app, es filtro de UI.
-            </p>
-          </div>
-          <button onClick={() => navigator.clipboard.writeText(session?.user?.id || '')} className="mt-2 text-[10px] bg-white/20 px-2 py-1 rounded hover:bg-white/30 w-full">
-            Copiar mi User ID
-          </button>
-        </div>
+
 
       </div>
     </ErrorBoundary>
