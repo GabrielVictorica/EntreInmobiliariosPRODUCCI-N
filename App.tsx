@@ -726,7 +726,9 @@ export default function App() {
         setActivities(isMom && teamUser ? mapped.filter(x => x.userId === teamUser) : mapped);
       }
       if (closings.data) {
+        console.log("🔥 RAW CLOSINGS FROM DB:", closings.data);
         const mapped = closings.data.filter(x => !!x).map(mapClosingFromDB);
+        console.log("🔥 MAPPED CLOSINGS:", mapped);
         setClosingLogs(mapped);
       }
 
