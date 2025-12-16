@@ -432,6 +432,26 @@ export default function App() {
   // Navigation Group State (Collapsible)
   const [expandedGroup, setExpandedGroup] = useState<'metrics' | 'sellers' | 'buyers' | 'trakeo' | 'system' | null>(null);
 
+  // --- NAVIGATION HELPER (Prevents Flickering) ---
+  const navigateTo = (newView: typeof view, params?: any) => {
+    setView(newView);
+    if (params) setViewParams(params);
+    else setViewParams(null); // Clear params if not provided
+
+    // Synchronous Update for Expanded Group
+    if (['dashboard', 'form', 'properties-list', 'property-form'].includes(newView)) {
+      setExpandedGroup('sellers');
+    } else if (['buyer-clients-list', 'buyer-client-form', 'buyer-searches-list', 'buyer-search-form', 'visits-list', 'visit-form'].includes(newView)) {
+      setExpandedGroup('buyers');
+    } else if (['my-week', 'objectives', 'closings'].includes(newView)) {
+      setExpandedGroup('trakeo');
+    } else if (['home', 'metrics-home', 'metrics-control'].includes(newView)) {
+      setExpandedGroup('metrics');
+    } else {
+      setExpandedGroup(null);
+    }
+  };
+
   // Data State
   const [clients, setClients] = useState<ClientRecord[]>([]);
   const [properties, setProperties] = useState<PropertyRecord[]>([]);
@@ -609,20 +629,7 @@ export default function App() {
 
   const isMasterUser = session?.user?.email === 'gabriel.v.g06@gmail.com';
 
-  // Auto-expand menu based on active view
-  useEffect(() => {
-    if (['dashboard', 'form', 'properties-list', 'property-form'].includes(view)) {
-      setExpandedGroup('sellers');
-    } else if (['buyer-clients-list', 'buyer-client-form', 'buyer-searches-list', 'buyer-search-form', 'visits-list', 'visit-form'].includes(view)) {
-      setExpandedGroup('buyers');
-    } else if (['my-week', 'objectives', 'closings'].includes(view)) {
-      setExpandedGroup('trakeo');
-    } else if (['home', 'metrics-home', 'metrics-control'].includes(view)) {
-      setExpandedGroup('metrics');
-    } else {
-      setExpandedGroup(null);
-    }
-  }, [view]);
+
 
   // --- TRAKING METRICS ---
 
@@ -840,12 +847,13 @@ export default function App() {
       setClients([newRecord, ...clients]);
     }
     setEditingClientId(null);
-    setView('dashboard');
+    setEditingClientId(null);
+    navigateTo('dashboard');
     try { await supabase.from('seller_clients').upsert(mapSellerToDB(newRecord, session.user.id)); } catch (err) { console.error(err); }
   };
 
-  const handleEditClient = (clientId: string) => { setEditingClientId(clientId); setView('form'); };
-  const handleAssignProperty = (clientId: string) => { setPreSelectedClientId(clientId); setEditingPropertyId(null); setView('property-form'); };
+  const handleEditClient = (clientId: string) => { setEditingClientId(clientId); navigateTo('form'); };
+  const handleAssignProperty = (clientId: string) => { setPreSelectedClientId(clientId); setEditingPropertyId(null); navigateTo('property-form'); };
 
   const handleSaveProperty = async (record: PropertyRecord) => {
     if (!session?.user) return;
@@ -857,14 +865,14 @@ export default function App() {
 
     if (editingPropertyId) setProperties(prev => prev.map(p => p.id === newRecord.id ? newRecord : p));
     else setProperties([newRecord, ...properties]);
-    setView('properties-list');
+    navigateTo('properties-list');
     setEditingPropertyId(null);
     setPreSelectedClientId(null);
     try { await supabase.from('properties').upsert(mapPropertyToDB(newRecord, session.user.id)); } catch (err) { console.error(err); }
   };
 
-  const handleEditProperty = (id: string) => { setEditingPropertyId(id); setView('property-form'); };
-  const handleNewProperty = () => { setEditingPropertyId(null); setPreSelectedClientId(null); setView('property-form'); }
+  const handleEditProperty = (id: string) => { setEditingPropertyId(id); navigateTo('property-form'); };
+  const handleNewProperty = () => { setEditingPropertyId(null); setPreSelectedClientId(null); navigateTo('property-form'); }
 
   // --- Handlers (Marketing) ---
   const handleOpenMarketing = (propertyId: string) => { setMarketingPropertyId(propertyId); setMarketingModalOpen(true); };
@@ -887,11 +895,11 @@ export default function App() {
     if (editingBuyerClientId) setBuyerClients(prev => prev.map(c => c.id === newRecord.id ? newRecord : c));
     else setBuyerClients([newRecord, ...buyerClients]);
     setEditingBuyerClientId(null);
-    setView('buyer-clients-list');
+    navigateTo('buyer-clients-list');
     try { await supabase.from('buyer_clients').upsert(mapBuyerToDB(newRecord, session.user.id)); } catch (e) { }
   };
-  const handleEditBuyerClient = (id: string) => { setEditingBuyerClientId(id); setView('buyer-client-form'); };
-  const handleCreateSearch = (buyerClientId: string) => { setPreSelectedBuyerClientId(buyerClientId); setEditingSearchId(null); setView('buyer-search-form'); };
+  const handleEditBuyerClient = (id: string) => { setEditingBuyerClientId(id); navigateTo('buyer-client-form'); };
+  const handleCreateSearch = (buyerClientId: string) => { setPreSelectedBuyerClientId(buyerClientId); setEditingSearchId(null); navigateTo('buyer-search-form'); };
 
   const handleSaveSearch = async (record: BuyerSearchRecord) => {
     if (!session?.user) return;
@@ -899,11 +907,11 @@ export default function App() {
     else setBuyerSearches([record, ...buyerSearches]);
     setEditingSearchId(null);
     setPreSelectedBuyerClientId(null);
-    setView('buyer-searches-list');
+    navigateTo('buyer-searches-list');
     try { await supabase.from('buyer_searches').upsert(mapSearchToDB(record, session.user.id)); } catch (e) { }
   };
-  const handleEditSearch = (id: string) => { setEditingSearchId(id); setView('buyer-search-form'); };
-  const handleNewSearch = () => { setEditingSearchId(null); setPreSelectedBuyerClientId(null); setView('buyer-search-form'); };
+  const handleEditSearch = (id: string) => { setEditingSearchId(id); navigateTo('buyer-search-form'); };
+  const handleNewSearch = () => { setEditingSearchId(null); setPreSelectedBuyerClientId(null); navigateTo('buyer-search-form'); };
 
   // --- Handlers (Visits) ---
   const handleSaveVisit = async (record: VisitRecord) => {
@@ -911,11 +919,11 @@ export default function App() {
     if (editingVisitId) setVisits(prev => prev.map(v => v.id === record.id ? record : v));
     else setVisits([record, ...visits]);
     setEditingVisitId(null);
-    setView('visits-list');
+    navigateTo('visits-list');
     try { await supabase.from('visits').upsert(mapVisitToDB(record, session.user.id)); } catch (err) { console.error(err); }
   };
-  const handleEditVisit = (id: string) => { setEditingVisitId(id); setView('visit-form'); };
-  const handleNewVisit = () => { setEditingVisitId(null); setView('visit-form'); };
+  const handleEditVisit = (id: string) => { setEditingVisitId(id); navigateTo('visit-form'); };
+  const handleNewVisit = () => { setEditingVisitId(null); navigateTo('visit-form'); };
 
   // --- Handlers (Activities - My Week) ---
   const handleSaveActivity = async (act: ActivityRecord) => {
@@ -1080,8 +1088,7 @@ export default function App() {
           activities={activities}
           visits={visits}
           onNavigate={(view, params) => {
-            setView(view);
-            if (params) setViewParams(params);
+            navigateTo(view, params);
           }}
           clients={clients}
           buyers={buyerClients}
@@ -1089,20 +1096,20 @@ export default function App() {
         />;
 
       // SELLERS
-      case 'dashboard': return <SellersDashboard clients={filteredClients} properties={properties} onNewClient={() => { setEditingClientId(null); setView('form'); }} onEditClient={handleEditClient} onAssignProperty={handleAssignProperty} onEditProperty={handleEditProperty} />;
-      case 'form': const clientToEdit = editingClientId ? clients.find(c => c.id === editingClientId) : null; return <FormWrapper onBack={() => setView('dashboard')}><ClientForm onSave={handleSaveClient} onCancel={() => setView('dashboard')} initialData={clientToEdit} /></FormWrapper>;
+      case 'dashboard': return <SellersDashboard clients={filteredClients} properties={properties} onNewClient={() => { setEditingClientId(null); navigateTo('form'); }} onEditClient={handleEditClient} onAssignProperty={handleAssignProperty} onEditProperty={handleEditProperty} />;
+      case 'form': const clientToEdit = editingClientId ? clients.find(c => c.id === editingClientId) : null; return <FormWrapper onBack={() => navigateTo('dashboard')}><ClientForm onSave={handleSaveClient} onCancel={() => navigateTo('dashboard')} initialData={clientToEdit} /></FormWrapper>;
       case 'properties-list': return <PropertyDashboard properties={properties} clients={clients} visits={visits} buyers={buyerClients} onNewProperty={handleNewProperty} onEditProperty={handleEditProperty} onOpenMarketing={handleOpenMarketing} />;
-      case 'property-form': const propToEdit = editingPropertyId ? properties.find(p => p.id === editingPropertyId) : null; return <FormWrapper onBack={() => setView('properties-list')}><PropertyForm clients={clients} onSave={handleSaveProperty} onCancel={() => setView('properties-list')} initialData={propToEdit} defaultClientId={preSelectedClientId || undefined} /></FormWrapper>;
+      case 'property-form': const propToEdit = editingPropertyId ? properties.find(p => p.id === editingPropertyId) : null; return <FormWrapper onBack={() => navigateTo('properties-list')}><PropertyForm clients={clients} onSave={handleSaveProperty} onCancel={() => navigateTo('properties-list')} initialData={propToEdit} defaultClientId={preSelectedClientId || undefined} /></FormWrapper>;
 
       // BUYERS
-      case 'buyer-clients-list': return <BuyerClientDashboard clients={buyerClients} searches={buyerSearches} visits={visits} properties={properties} onNewClient={() => { setEditingBuyerClientId(null); setView('buyer-client-form'); }} onEditClient={handleEditBuyerClient} onCreateSearch={handleCreateSearch} onEditSearch={handleEditSearch} />;
-      case 'buyer-client-form': const buyerClientToEdit = editingBuyerClientId ? buyerClients.find(c => c.id === editingBuyerClientId) : null; return <FormWrapper onBack={() => setView('buyer-clients-list')}><BuyerClientForm onSave={handleSaveBuyerClient} onCancel={() => setView('buyer-clients-list')} initialData={buyerClientToEdit} /></FormWrapper>;
+      case 'buyer-clients-list': return <BuyerClientDashboard clients={buyerClients} searches={buyerSearches} visits={visits} properties={properties} onNewClient={() => { setEditingBuyerClientId(null); navigateTo('buyer-client-form'); }} onEditClient={handleEditBuyerClient} onCreateSearch={handleCreateSearch} onEditSearch={handleEditSearch} />;
+      case 'buyer-client-form': const buyerClientToEdit = editingBuyerClientId ? buyerClients.find(c => c.id === editingBuyerClientId) : null; return <FormWrapper onBack={() => navigateTo('buyer-clients-list')}><BuyerClientForm onSave={handleSaveBuyerClient} onCancel={() => navigateTo('buyer-clients-list')} initialData={buyerClientToEdit} /></FormWrapper>;
       case 'buyer-searches-list': return <BuyerSearchDashboard searches={buyerSearches} clients={buyerClients} onNewSearch={handleNewSearch} onEditSearch={handleEditSearch} />;
-      case 'buyer-search-form': const searchToEdit = editingSearchId ? buyerSearches.find(s => s.id === editingSearchId) : null; return <FormWrapper onBack={() => setView('buyer-searches-list')}><BuyerSearchForm clients={buyerClients} properties={properties} onSave={handleSaveSearch} onCancel={() => setView('buyer-searches-list')} initialData={searchToEdit} defaultClientId={preSelectedBuyerClientId || undefined} /></FormWrapper>;
+      case 'buyer-search-form': const searchToEdit = editingSearchId ? buyerSearches.find(s => s.id === editingSearchId) : null; return <FormWrapper onBack={() => navigateTo('buyer-searches-list')}><BuyerSearchForm clients={buyerClients} properties={properties} onSave={handleSaveSearch} onCancel={() => navigateTo('buyer-searches-list')} initialData={searchToEdit} defaultClientId={preSelectedBuyerClientId || undefined} /></FormWrapper>;
 
       // VISITS
       case 'visits-list': return <VisitDashboard visits={visits} properties={properties} buyers={buyerClients} onNewVisit={handleNewVisit} onEditVisit={handleEditVisit} />;
-      case 'visit-form': const visitToEdit = editingVisitId ? visits.find(v => v.id === editingVisitId) : null; return <FormWrapper onBack={() => setView('visits-list')}><VisitForm properties={properties} buyers={buyerClients} buyerSearches={buyerSearches} onSave={handleSaveVisit} onCancel={() => setView('visits-list')} initialData={visitToEdit} /></FormWrapper>;
+      case 'visit-form': const visitToEdit = editingVisitId ? visits.find(v => v.id === editingVisitId) : null; return <FormWrapper onBack={() => navigateTo('visits-list')}><VisitForm properties={properties} buyers={buyerClients} buyerSearches={buyerSearches} onSave={handleSaveVisit} onCancel={() => navigateTo('visits-list')} initialData={visitToEdit} /></FormWrapper>;
 
       // TRAKEO (Objectives, Weekly, Closings)
       case 'my-week':
@@ -1161,8 +1168,7 @@ export default function App() {
           activities={activities}
           visits={visits}
           onNavigate={(view, params) => {
-            setView(view);
-            if (params) setViewParams(params);
+            navigateTo(view, params);
           }}
           financialGoals={financialGoals}
           onUpdateGoals={handleUpdateFinancialGoals}
@@ -1269,13 +1275,13 @@ export default function App() {
                 </button>
                 <div className={`overflow-hidden transition-all duration-300 ${expandedGroup === 'metrics' ? 'max-h-32 opacity-100' : 'max-h-0 opacity-0'}`}>
                   <div className="ml-0 lg:ml-4 border-l border-white/10 pl-2 space-y-1 mt-1">
-                    <NavItem icon={<LayoutDashboard size={18} />} label="Resumen" active={view === 'home' || view === 'metrics-home'} onClick={() => setView('metrics-home')} small />
-                    <NavItem icon={<PieChart size={18} />} label="Control Negocio" active={view === 'metrics-control'} onClick={() => setView('metrics-control')} small />
+                    <NavItem icon={<LayoutDashboard size={18} />} label="Resumen" active={view === 'home' || view === 'metrics-home'} onClick={() => navigateTo('metrics-home')} small />
+                    <NavItem icon={<PieChart size={18} />} label="Control Negocio" active={view === 'metrics-control'} onClick={() => navigateTo('metrics-control')} small />
                   </div>
                 </div>
               </div>
 
-              <div><NavItem icon={<Calendar size={20} />} label="Calendario" active={view === 'calendar'} onClick={() => setView('calendar')} /></div>
+              <div><NavItem icon={<Calendar size={20} />} label="Calendario" active={view === 'calendar'} onClick={() => navigateTo('calendar')} /></div>
 
               {/* VENDEDORES GROUP */}
               <div>
@@ -1285,8 +1291,8 @@ export default function App() {
                 </button>
                 <div className={`overflow-hidden transition-all duration-300 ${expandedGroup === 'sellers' ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
                   <div className="ml-0 lg:ml-4 border-l border-white/10 pl-2 space-y-1 mt-1">
-                    <NavItem icon={<Users size={18} />} label="Mis Clientes" active={view === 'dashboard' || view === 'form'} onClick={() => setView('dashboard')} small />
-                    <NavItem icon={<Building2 size={18} />} label="Propiedades" active={view === 'properties-list' || view === 'property-form'} onClick={() => setView('properties-list')} small />
+                    <NavItem icon={<Users size={18} />} label="Mis Clientes" active={view === 'dashboard' || view === 'form'} onClick={() => navigateTo('dashboard')} small />
+                    <NavItem icon={<Building2 size={18} />} label="Propiedades" active={view === 'properties-list' || view === 'property-form'} onClick={() => navigateTo('properties-list')} small />
                   </div>
                 </div>
               </div>
@@ -1299,9 +1305,9 @@ export default function App() {
                 </button>
                 <div className={`overflow-hidden transition-all duration-300 ${expandedGroup === 'buyers' ? 'max-h-48 opacity-100' : 'max-h-0 opacity-0'}`}>
                   <div className="ml-0 lg:ml-4 border-l border-white/10 pl-2 space-y-1 mt-1">
-                    <NavItem icon={<UserCheck size={18} />} label="Mis Clientes" active={view === 'buyer-clients-list' || view === 'buyer-client-form'} onClick={() => setView('buyer-clients-list')} small />
-                    <NavItem icon={<Wallet size={18} />} label="Búsquedas Activas" active={view === 'buyer-searches-list' || view === 'buyer-search-form'} onClick={() => setView('buyer-searches-list')} small />
-                    <NavItem icon={<Calendar size={18} />} label="Visitas" active={view === 'visits-list' || view === 'visit-form'} onClick={() => setView('visits-list')} small />
+                    <NavItem icon={<UserCheck size={18} />} label="Mis Clientes" active={view === 'buyer-clients-list' || view === 'buyer-client-form'} onClick={() => navigateTo('buyer-clients-list')} small />
+                    <NavItem icon={<Wallet size={18} />} label="Búsquedas Activas" active={view === 'buyer-searches-list' || view === 'buyer-search-form'} onClick={() => navigateTo('buyer-searches-list')} small />
+                    <NavItem icon={<Calendar size={18} />} label="Visitas" active={view === 'visits-list' || view === 'visit-form'} onClick={() => navigateTo('visits-list')} small />
                   </div>
                 </div>
               </div>
@@ -1314,9 +1320,9 @@ export default function App() {
                 </button>
                 <div className={`overflow-hidden transition-all duration-300 ${expandedGroup === 'trakeo' ? 'max-h-48 opacity-100' : 'max-h-0 opacity-0'}`}>
                   <div className="ml-0 lg:ml-4 border-l border-white/10 pl-2 space-y-1 mt-1">
-                    <NavItem icon={<CalendarDays size={18} />} label="Mí Semana" active={view === 'my-week'} onClick={() => setView('my-week')} small />
-                    <NavItem icon={<DollarSign size={18} />} label="Cierres" active={view === 'closings'} onClick={() => setView('closings')} small />
-                    <NavItem icon={<Flag size={18} />} label="Objetivos" active={view === 'objectives'} onClick={() => setView('objectives')} small />
+                    <NavItem icon={<CalendarDays size={18} />} label="Mí Semana" active={view === 'my-week'} onClick={() => navigateTo('my-week')} small />
+                    <NavItem icon={<DollarSign size={18} />} label="Cierres" active={view === 'closings'} onClick={() => navigateTo('closings')} small />
+                    <NavItem icon={<Flag size={18} />} label="Objetivos" active={view === 'objectives'} onClick={() => navigateTo('objectives')} small />
                   </div>
                 </div>
               </div>
