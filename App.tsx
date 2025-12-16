@@ -797,6 +797,14 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Failsafe: Ensure Loading Screen Clears after 5s
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsAuthChecking(false);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, []);
+
   // Re-filter when filters change (Manual Trigger)
   useEffect(() => {
     if (session?.user && !isAuthChecking) {
