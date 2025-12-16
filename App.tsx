@@ -758,14 +758,30 @@ export default function App() {
   };
 
   useEffect(() => {
-    // Rely on onAuthStateChange to trigger initialization
+    // 1. Initial Session Check (Critical for Reloads)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) {
+        initializeUser(session);
+        // Load Financial Goals
+        supabase.from('user_settings').select('goals').eq('user_id', session.user.id).single()
+          .then(({ data }) => {
+            if (data && data.goals) setFinancialGoals(prev => ({ ...prev, ...data.goals }));
+          });
+      } else {
+        setIsAuthChecking(false);
+      }
+    });
+
+    // 2. Auth State Listener (For Sign In / Sign Out events)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
       if (session) {
-        // Start sequenced init
+        // Start sequenced init (only if not already done by getSession - though redundant calls are safe due to React batching usually, let's keep it simple)
+        // Note: onAuthStateChange OFTEN fires on mount too. To avoid double init, we rely on React state updates or just let it happen (idempotent).
         await initializeUser(session);
 
-        // Load Financial Goals (can be parallel)
+        // Load Financial Goals
         supabase.from('user_settings').select('goals').eq('user_id', session.user.id).single()
           .then(({ data }) => {
             if (data && data.goals) setFinancialGoals(prev => ({ ...prev, ...data.goals }));
