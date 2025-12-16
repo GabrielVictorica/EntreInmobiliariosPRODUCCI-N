@@ -1069,17 +1069,7 @@ export default function App() {
 
   // Render content
   const renderContent = () => {
-    if (loading) {
-      return (
-        <div className="flex h-full items-center justify-center flex-col">
-          <Loader2 className="w-12 h-12 text-[#AA895F] animate-spin mb-4" />
-          <p className="text-[#364649] font-medium animate-pulse">Cargando base de datos...</p>
-        </div>
-      );
-    }
-
     switch (view) {
-      // HOME
       // HOME
       case 'home':
       case 'metrics-home':
@@ -1394,15 +1384,7 @@ export default function App() {
               </h2>
             </div>
 
-            {/* Header Content */}
-            <div className="flex items-center gap-4">
-              <h2 className="text-xl font-bold text-[#364649] capitalize">
-                {view === 'home' ? 'Panel Principal' :
-                  view.includes('buyer') ? 'Gestión Compradores' :
-                    view.includes('visit') ? 'Gestión Visitas' :
-                      view.replace('-', ' ')}
-              </h2>
-            </div>
+
 
             {/* MOTHER USER: Team Filter */}
             {isMother && (
