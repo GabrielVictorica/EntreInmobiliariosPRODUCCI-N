@@ -732,6 +732,7 @@ export default function App() {
 
     } catch (error: any) {
       console.error("Error loading data from Supabase:", error);
+      alert("Error cargando datos: " + (error.message || JSON.stringify(error)));
     } finally {
     }
   };
