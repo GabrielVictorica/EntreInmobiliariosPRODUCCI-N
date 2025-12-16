@@ -429,6 +429,9 @@ export default function App() {
   const [view, setView] = useState<'home' | 'dashboard' | 'form' | 'properties-list' | 'property-form' | 'buyer-clients-list' | 'buyer-client-form' | 'buyer-searches-list' | 'buyer-search-form' | 'visits-list' | 'visit-form' | 'my-week' | 'objectives' | 'closings' | 'calendar' | 'metrics-home' | 'metrics-control'>('home');
   const [viewParams, setViewParams] = useState<any>(null);
 
+  // Auth Checking State (Prevents Login Flash)
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+
   // Navigation Group State (Collapsible)
   const [expandedGroup, setExpandedGroup] = useState<'metrics' | 'sellers' | 'buyers' | 'trakeo' | 'system' | null>(null);
 
@@ -588,6 +591,7 @@ export default function App() {
         setClients([]);
         setProperties([]);
       }
+      setIsAuthChecking(false);
     });
 
     return () => subscription.unsubscribe();
@@ -1243,6 +1247,15 @@ export default function App() {
   }
 
   // --- RENDER LOGIN OR APP ---
+  if (isAuthChecking) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-[#E0D8CC] flex-col">
+        <Loader2 className="w-16 h-16 text-[#AA895F] animate-spin mb-4" />
+        <p className="text-[#364649] font-medium animate-pulse text-lg tracking-wider">Iniciando sistema...</p>
+      </div>
+    );
+  }
+
   if (!session) {
     return <Login />;
   }
