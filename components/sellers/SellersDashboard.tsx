@@ -90,7 +90,6 @@ const SellersDashboard: React.FC<DashboardProps> = ({ clients, properties, onNew
                       <tr
                         className={`group transition-all duration-300 cursor-pointer ${isExpanded ? 'bg-[#AA895F]/5' : 'hover:bg-white/50'}`}
                         onClick={() => toggleRow(client.id)}
-                        onClick={() => toggleRow(client.id)}
                       >
                         <td className="px-6 py-4">
                           <div className="flex items-center">
@@ -112,9 +111,9 @@ const SellersDashboard: React.FC<DashboardProps> = ({ clients, properties, onNew
                         </td>
                         <td className="px-6 py-4">
                           <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border transition-transform duration-300 hover:scale-105 ${client.profileType === 'investor' ? 'bg-[#AA895F]/10 text-[#AA895F] border-[#AA895F]/20' :
-                              client.profileType === 'constructor' ? 'bg-[#364649]/10 text-[#364649] border-[#364649]/20' :
-                                client.profileType === 'company' ? 'bg-[#708F96]/10 text-[#708F96] border-[#708F96]/20' :
-                                  'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                            client.profileType === 'constructor' ? 'bg-[#364649]/10 text-[#364649] border-[#364649]/20' :
+                              client.profileType === 'company' ? 'bg-[#708F96]/10 text-[#708F96] border-[#708F96]/20' :
+                                'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
                             }`}>
                             {client.profileType === 'particular' ? 'Particular' :
                               client.profileType === 'investor' ? 'Inversor' :
