@@ -20,10 +20,11 @@ interface DashboardProps {
   onNewClient: () => void;
   onEditClient: (clientId: string) => void;
   onAssignProperty: (clientId: string) => void;
-  onEditProperty: (id: string) => void; // Added prop to edit directly
+  onEditProperty: (id: string) => void;
+  isLoading?: boolean;
 }
 
-const SellersDashboard: React.FC<DashboardProps> = ({ clients, properties, onNewClient, onEditClient, onAssignProperty, onEditProperty }) => {
+const SellersDashboard: React.FC<DashboardProps> = ({ clients, properties, onNewClient, onEditClient, onAssignProperty, onEditProperty, isLoading }) => {
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
   const toggleRow = (id: string) => {
@@ -59,7 +60,19 @@ const SellersDashboard: React.FC<DashboardProps> = ({ clients, properties, onNew
           <button className="text-[#708F96] hover:text-[#364649] text-sm font-medium transition-colors duration-300 hover:underline">Ver todos</button>
         </div>
 
-        {clients.length === 0 ? (
+        {isLoading ? (
+          <div className="p-6 space-y-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex items-center space-x-4 animate-pulse">
+                <div className="w-10 h-10 bg-gray-200 rounded-full"></div>
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 bg-gray-200 rounded w-1/4"></div>
+                  <div className="h-3 bg-gray-200 rounded w-1/6"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : clients.length === 0 ? (
           <div className="p-16 text-center">
             <div className="w-16 h-16 bg-[#364649]/5 rounded-full flex items-center justify-center mx-auto mb-4 border border-[#364649]/10 animate-pulse">
               <Users className="text-[#364649]/40" size={24} />
