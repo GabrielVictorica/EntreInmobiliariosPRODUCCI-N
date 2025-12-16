@@ -431,6 +431,7 @@ export default function App() {
 
   // Auth Checking State (Prevents Login Flash)
   const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [isDataReady, setIsDataReady] = useState(false);
 
   // Navigation Group State (Collapsible)
   const [expandedGroup, setExpandedGroup] = useState<'metrics' | 'sellers' | 'buyers' | 'trakeo' | 'system' | null>(null);
@@ -750,6 +751,7 @@ const initializeUser = async (currentSession: any) => {
     console.error("Initialization Failed", error);
   } finally {
     setIsAuthChecking(false);
+    setIsDataReady(true);
   }
 };
 
@@ -1252,6 +1254,16 @@ if (isAuthChecking) {
 
 if (!session) {
   return <Login />;
+}
+
+// Ensure data is ready before showing the dashboard to prevent "empty state" flicker
+if (!isDataReady) {
+  return (
+    <div className="flex h-screen w-full items-center justify-center bg-[#E0D8CC] flex-col">
+      <Loader2 className="w-16 h-16 text-[#AA895F] animate-spin mb-4" />
+      <p className="text-[#364649] font-medium animate-pulse text-lg tracking-wider">Cargando datos...</p>
+    </div>
+  );
 }
 
 // Wrap content in ErrorBoundary
