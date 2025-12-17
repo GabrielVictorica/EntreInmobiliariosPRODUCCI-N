@@ -1042,6 +1042,7 @@ export default function App() {
         // INSERT
         // If isNew, we now send the client-generated UUID to Supabase, so no need to delete ID.
         const { data, error } = await supabase.from('closing_logs').insert(dbPayload).select().single();
+        if (error) throw error;
         // Update local state with real ID if successful
         if (data) {
           const realRecord = mapClosingFromDB(data);
@@ -1049,7 +1050,8 @@ export default function App() {
         }
       } else {
         // UPDATE
-        await supabase.from('closing_logs').update(dbPayload).eq('id', id);
+        const { error } = await supabase.from('closing_logs').update(dbPayload).eq('id', closing.id);
+        if (error) throw error;
       }
 
     } catch (err: any) {
