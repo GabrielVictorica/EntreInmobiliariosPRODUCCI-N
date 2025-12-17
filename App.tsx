@@ -561,28 +561,15 @@ export default function App() {
 
   // --- Auth & Session Management ---
   const checkUserRole = async (userId: string, currentSession?: any) => {
-    console.log("🔥 ROLE CHECK - PURE EMAIL CHECK (NO DB)");
-    // COMPLETELY BYPASS DATABASE - Check role by email only
     const userEmail = currentSession?.user?.email || session?.user?.email;
     const isMom = userEmail === 'gabriel.v.g06@gmail.com';
-    console.log("🔥 ROLE RESULT:", isMom, userEmail);
     setIsMother(isMom);
-    setTeamUsers([]); // Skip team users fetch entirely
+    setTeamUsers([]);
     return isMom;
   };
 
   const isMasterUser = session?.user?.email === 'gabriel.v.g06@gmail.com';
 
-
-
-  // --- TRAKING METRICS ---
-  // --- TRAKING METRICS ---
-  useEffect(() => {
-    console.log("🔥 APP VERSION: DEBUG_V5_DEEP_TRACE");
-    console.log("🔥 SUPABASE URL:", import.meta.env.VITE_SUPABASE_URL);
-    const key = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-    console.log("🔥 SUPABASE KEY (Partial):", key.substring(0, 10) + "...");
-  }, []);
 
   // 1. Current Billing (Annual Reset)
   const currentTotalBilling = useMemo(() => {
@@ -652,11 +639,7 @@ export default function App() {
   const hasLoadedOnce = React.useRef(false);
   const loadAllData = async (activeUserId?: string, isMotherOverride?: boolean, teamUserOverride?: string | null) => {
     const uid = activeUserId || session?.user?.id;
-    console.log("🔥 LOAD ALL DATA START. UID:", uid);
-    if (!uid) {
-      console.log("🔥 LOAD ABORTED: No UID");
-      return;
-    }
+    if (!uid) return;
 
     const isMom = isMotherOverride !== undefined ? isMotherOverride : isMother;
     const teamUser = teamUserOverride !== undefined ? teamUserOverride : selectedTeamUser;
@@ -665,41 +648,18 @@ export default function App() {
     if (!hasLoadedOnce.current) setLoading(true);
 
     try {
-      console.log("🔥 FETCHING: seller_clients");
-      const c = await supabase.from('seller_clients').select('*');
-      console.log("🔥 DONE: seller_clients", c.data?.length || 0);
-
-      console.log("🔥 FETCHING: properties");
-      const p = await supabase.from('properties').select('*');
-      console.log("🔥 DONE: properties", p.data?.length || 0);
-
-      console.log("🔥 FETCHING: buyer_clients");
-      const bc = await supabase.from('buyer_clients').select('*');
-      console.log("🔥 DONE: buyer_clients", bc.data?.length || 0);
-
-      console.log("🔥 FETCHING: buyer_searches");
-      const bs = await supabase.from('buyer_searches').select('*');
-      console.log("🔥 DONE: buyer_searches", bs.data?.length || 0);
-
-      console.log("🔥 FETCHING: visits");
-      const v = await supabase.from('visits').select('*');
-      console.log("🔥 DONE: visits", v.data?.length || 0);
-
-      console.log("🔥 FETCHING: property_marketing_logs");
-      const m = await supabase.from('property_marketing_logs').select('*').order('date', { ascending: false });
-      console.log("🔥 DONE: property_marketing_logs", m.data?.length || 0);
-
-      console.log("🔥 FETCHING: activities");
-      const act = await supabase.from('activities').select('*');
-      console.log("🔥 DONE: activities", act.data?.length || 0);
-
-      console.log("🔥 FETCHING: user_settings");
-      const settings = await supabase.from('user_settings').select('*').eq('user_id', uid).maybeSingle();
-      console.log("🔥 DONE: user_settings");
-
-      console.log("🔥 FETCHING: closing_logs");
-      const closings = await supabase.from('closing_logs').select('*');
-      console.log("🔥 DONE: closing_logs", closings.data?.length || 0);
+      // Parallel loading for maximum speed
+      const [c, p, bc, bs, v, m, act, settings, closings] = await Promise.all([
+        supabase.from('seller_clients').select('*'),
+        supabase.from('properties').select('*'),
+        supabase.from('buyer_clients').select('*'),
+        supabase.from('buyer_searches').select('*'),
+        supabase.from('visits').select('*'),
+        supabase.from('property_marketing_logs').select('*').order('date', { ascending: false }),
+        supabase.from('activities').select('*'),
+        supabase.from('user_settings').select('*').eq('user_id', uid).maybeSingle(),
+        supabase.from('closing_logs').select('*')
+      ]);
 
       if (settings.data) {
         setFinancialGoals(prev => ({
@@ -745,9 +705,7 @@ export default function App() {
         setActivities(isMom && teamUser ? mapped.filter(x => x.userId === teamUser) : mapped);
       }
       if (closings.data) {
-        console.log("🔥 RAW CLOSINGS FROM DB:", closings.data);
         const mapped = closings.data.filter(x => !!x).map(mapClosingFromDB);
-        console.log("🔥 MAPPED CLOSINGS:", mapped);
         setClosingLogs(mapped);
       }
 
@@ -760,21 +718,13 @@ export default function App() {
 
   // --- Sequenced Initialization ---
   const initializeUser = async (currentSession: any) => {
-    console.log("🔥 INIT USER START", currentSession?.user?.id);
     if (!currentSession?.user) {
-      console.log("🔥 INIT USER ABORT: No Session");
       setIsAuthChecking(false);
       return;
     }
 
     try {
-      // 1. Check Role FIRST - pass full session for email access
-      console.log("🔥 CHECKING ROLE...");
       const isMom = await checkUserRole(currentSession.user.id, currentSession);
-      console.log("🔥 ROLE RESULT:", isMom);
-
-      // 2. Load Data (passing explicit overrides to avoid stale state)
-      console.log("🔥 CALLING LOAD ALL DATA...");
       await loadAllData(currentSession.user.id, isMom, selectedTeamUser);
     } catch (error) {
       console.error("Initialization Failed", error);
@@ -785,13 +735,10 @@ export default function App() {
   };
 
   useEffect(() => {
-    console.log("🔥 AUTH EFFECT START");
     // 1. Initial Session Check (Critical for Reloads)
     supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log("🔥 GET SESSION RESULT:", session ? "User Found" : "No Session");
       setSession(session);
       if (session) {
-        console.log("🔥 CALLING INITIALIZE USER FROM GETSESSION...", session.user.id);
         initializeUser(session);
         // Load Financial Goals
         supabase.from('user_settings').select('goals').eq('user_id', session.user.id).single()
@@ -799,20 +746,15 @@ export default function App() {
             if (data && data.goals) setFinancialGoals(prev => ({ ...prev, ...data.goals }));
           });
       } else {
-        console.log("🔥 NO SESSION - ABORTING INIT");
         setIsAuthChecking(false);
       }
     });
 
     // 2. Auth State Listener (For Sign In / Sign Out events)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("🔥 AUTH CHANGE EVENT:", event);
       setSession(session);
       if (session) {
-        console.log("🔥 AUTH CHANGE: SESSION FOUND, INIT USER...");
         await initializeUser(session);
-        // ...
-
         // Load Financial Goals
         supabase.from('user_settings').select('goals').eq('user_id', session.user.id).single()
           .then(({ data }) => {
