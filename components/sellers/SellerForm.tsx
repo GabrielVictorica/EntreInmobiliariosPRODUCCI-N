@@ -54,12 +54,12 @@ const ClientForm: React.FC<ClientFormProps> = ({ onSave, onCancel, initialData }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Ensure tags is always an array
     const tags = initialData && Array.isArray(initialData.tags) ? initialData.tags : ['Prospecto'];
 
     const newClient: ClientRecord = {
-      id: initialData ? initialData.id : Date.now().toString(),
+      id: initialData ? initialData.id : crypto.randomUUID(),
       profileType,
       owners,
       contact,
@@ -74,7 +74,7 @@ const ClientForm: React.FC<ClientFormProps> = ({ onSave, onCancel, initialData }
 
   return (
     <div className="bg-white/60 backdrop-blur-2xl border border-white rounded-3xl p-8 shadow-2xl relative overflow-hidden animate-fade-in-up">
-      
+
       <div className="flex items-center space-x-4 mb-8">
         <div className="w-12 h-12 bg-[#364649] rounded-2xl flex items-center justify-center shadow-lg shadow-[#364649]/20 animate-scale-in">
           <User className="text-white" size={24} />
@@ -88,26 +88,26 @@ const ClientForm: React.FC<ClientFormProps> = ({ onSave, onCancel, initialData }
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-8">
-        
+
         {/* Type Selection */}
         <div className="space-y-4">
           <label className="text-xs font-bold text-[#AA895F] uppercase tracking-wider">Tipo de Cliente</label>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {(['particular', 'investor', 'constructor', 'company'] as ClientProfile[]).map((type) => (
               <label key={type} className={`cursor-pointer relative group`}>
-                <input 
-                  type="radio" 
-                  name="profileType" 
-                  value={type} 
+                <input
+                  type="radio"
+                  name="profileType"
+                  value={type}
                   checked={profileType === type}
                   onChange={() => setProfileType(type)}
-                  className="sr-only" 
+                  className="sr-only"
                 />
                 <div className={`p-4 rounded-xl border transition-all duration-300 flex flex-col items-center justify-center transform
-                   ${profileType === type 
-                     ? 'bg-[#364649] border-[#364649] text-white shadow-lg scale-105' 
-                     : 'bg-white/50 border-white/50 text-[#364649]/60 hover:bg-white hover:border-white hover:shadow-md hover:-translate-y-1'
-                   }
+                   ${profileType === type
+                    ? 'bg-[#364649] border-[#364649] text-white shadow-lg scale-105'
+                    : 'bg-white/50 border-white/50 text-[#364649]/60 hover:bg-white hover:border-white hover:shadow-md hover:-translate-y-1'
+                  }
                 `}>
                   <Building size={20} className={`mb-2 transition-colors duration-300 ${profileType === type ? 'text-[#AA895F]' : 'text-[#708F96]'}`} />
                   <span className="capitalize font-bold text-sm">
@@ -123,8 +123,8 @@ const ClientForm: React.FC<ClientFormProps> = ({ onSave, onCancel, initialData }
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <label className="text-xs font-bold text-[#708F96] uppercase tracking-wider">Titulares</label>
-            <button 
-              type="button" 
+            <button
+              type="button"
               onClick={addOwner}
               className="text-xs bg-[#708F96]/10 hover:bg-[#708F96]/20 text-[#708F96] px-3 py-1.5 rounded-lg font-bold transition-all duration-300 flex items-center border border-[#708F96]/20 hover:shadow-md active:scale-95"
             >
@@ -142,25 +142,25 @@ const ClientForm: React.FC<ClientFormProps> = ({ onSave, onCancel, initialData }
                 )}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
                   <div className="md:col-span-2">
-                    <Input 
-                      label="Nombre Completo" 
-                      placeholder="Ej: Juan Pérez" 
+                    <Input
+                      label="Nombre Completo"
+                      placeholder="Ej: Juan Pérez"
                       value={owner.name}
                       onChange={(val: string) => updateOwner(owner.id, 'name', val)}
                     />
                   </div>
                   <div>
-                     <Input 
-                      label="DNI / CUIT" 
-                      placeholder="00.000.000" 
+                    <Input
+                      label="DNI / CUIT"
+                      placeholder="00.000.000"
                       value={owner.dni}
                       onChange={(val: string) => updateOwner(owner.id, 'dni', val)}
                     />
                   </div>
-                   <div>
+                  <div>
                     <label className="block text-[10px] font-bold text-[#364649]/60 uppercase mb-1">Estado Civil</label>
                     <div className="relative">
-                      <select 
+                      <select
                         value={owner.maritalStatus}
                         onChange={(e) => updateOwner(owner.id, 'maritalStatus', e.target.value)}
                         className="w-full bg-white border border-[#364649]/10 rounded-lg px-3 py-2.5 text-sm text-[#364649] focus:outline-none focus:border-[#AA895F] focus:ring-1 focus:ring-[#AA895F] appearance-none transition-all duration-300 shadow-sm hover:border-[#AA895F]/50"
@@ -182,87 +182,87 @@ const ClientForm: React.FC<ClientFormProps> = ({ onSave, onCancel, initialData }
         <div className="space-y-4">
           <label className="text-xs font-bold text-[#708F96] uppercase tracking-wider">Contacto</label>
           <div className="bg-white/40 rounded-2xl p-6 border border-white hover:shadow-md transition-shadow duration-300">
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Input 
-                  label="Email" 
-                  icon={<Mail size={16}/>}
-                  type="email"
-                  value={contact.email}
-                  onChange={(val: string) => updateContact('email', val)}
-                />
-                <Input 
-                  label="Teléfono" 
-                  icon={<Phone size={16}/>}
-                  type="tel"
-                  value={contact.phone}
-                  onChange={(val: string) => updateContact('phone', val)}
-                />
-                <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-6">
-                   <div className="md:col-span-2">
-                      <Input 
-                        label="Domicilio" 
-                        icon={<MapPin size={16}/>}
-                        value={contact.address}
-                        onChange={(val: string) => updateContact('address', val)}
-                      />
-                   </div>
-                   <Input 
-                      label="Ciudad" 
-                      value={contact.city}
-                      onChange={(val: string) => updateContact('city', val)}
-                    />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Input
+                label="Email"
+                icon={<Mail size={16} />}
+                type="email"
+                value={contact.email}
+                onChange={(val: string) => updateContact('email', val)}
+              />
+              <Input
+                label="Teléfono"
+                icon={<Phone size={16} />}
+                type="tel"
+                value={contact.phone}
+                onChange={(val: string) => updateContact('phone', val)}
+              />
+              <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="md:col-span-2">
+                  <Input
+                    label="Domicilio"
+                    icon={<MapPin size={16} />}
+                    value={contact.address}
+                    onChange={(val: string) => updateContact('address', val)}
+                  />
                 </div>
-             </div>
-             
-             <div className="mt-6">
-                <label className="block text-[10px] font-bold text-[#364649]/60 uppercase mb-2">Preferencia de Contacto</label>
-                <div className="flex space-x-2">
-                  {['whatsapp', 'call', 'email'].map((method) => (
-                    <button
-                      key={method}
-                      type="button"
-                      onClick={() => updateContact('preferredContact', method)}
-                      className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-300 transform active:scale-95
-                        ${contact.preferredContact === method 
-                          ? 'bg-[#AA895F] text-white shadow-md scale-105' 
-                          : 'bg-white border border-[#364649]/10 text-[#364649]/60 hover:bg-[#364649]/5 hover:text-[#364649]'
-                        }
+                <Input
+                  label="Ciudad"
+                  value={contact.city}
+                  onChange={(val: string) => updateContact('city', val)}
+                />
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <label className="block text-[10px] font-bold text-[#364649]/60 uppercase mb-2">Preferencia de Contacto</label>
+              <div className="flex space-x-2">
+                {['whatsapp', 'call', 'email'].map((method) => (
+                  <button
+                    key={method}
+                    type="button"
+                    onClick={() => updateContact('preferredContact', method)}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-300 transform active:scale-95
+                        ${contact.preferredContact === method
+                        ? 'bg-[#AA895F] text-white shadow-md scale-105'
+                        : 'bg-white border border-[#364649]/10 text-[#364649]/60 hover:bg-[#364649]/5 hover:text-[#364649]'
+                      }
                       `}
-                    >
-                      {method}
-                    </button>
-                  ))}
-                </div>
-             </div>
+                  >
+                    {method}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
 
         {/* Notes */}
         <div>
-           <label className="text-xs font-bold text-[#708F96] uppercase tracking-wider mb-2 block">Notas</label>
-           <textarea 
-             value={notes}
-             onChange={(e) => setNotes(e.target.value)}
-             className="w-full bg-white/50 border border-[#364649]/10 rounded-xl p-4 text-[#364649] placeholder-[#364649]/40 focus:ring-2 focus:ring-[#AA895F]/50 focus:border-[#AA895F] outline-none h-24 resize-none transition-all duration-300 shadow-sm hover:shadow-md focus:bg-white"
-             placeholder="Escribe observaciones importantes sobre el cliente..."
-           />
+          <label className="text-xs font-bold text-[#708F96] uppercase tracking-wider mb-2 block">Notas</label>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            className="w-full bg-white/50 border border-[#364649]/10 rounded-xl p-4 text-[#364649] placeholder-[#364649]/40 focus:ring-2 focus:ring-[#AA895F]/50 focus:border-[#AA895F] outline-none h-24 resize-none transition-all duration-300 shadow-sm hover:shadow-md focus:bg-white"
+            placeholder="Escribe observaciones importantes sobre el cliente..."
+          />
         </div>
 
         {/* Actions */}
         <div className="flex justify-end space-x-4 pt-4 border-t border-[#364649]/10">
-           <button 
-             type="button" 
-             onClick={onCancel}
-             className="px-6 py-3 text-[#364649]/60 font-bold hover:text-[#364649] transition-colors duration-200"
-           >
-             Cancelar
-           </button>
-           <button 
-             type="submit"
-             className="btn-hover-effect bg-[#364649] text-white px-8 py-3 rounded-xl hover:bg-[#2A3638] flex items-center font-bold"
-           >
-             <Save className="mr-2" size={18} /> {initialData ? 'Actualizar Cliente' : 'Guardar Cliente'}
-           </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-6 py-3 text-[#364649]/60 font-bold hover:text-[#364649] transition-colors duration-200"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            className="btn-hover-effect bg-[#364649] text-white px-8 py-3 rounded-xl hover:bg-[#2A3638] flex items-center font-bold"
+          >
+            <Save className="mr-2" size={18} /> {initialData ? 'Actualizar Cliente' : 'Guardar Cliente'}
+          </button>
         </div>
 
       </form>
@@ -280,7 +280,7 @@ const Input = ({ label, icon, value, onChange, type = "text", placeholder }: any
           {icon}
         </div>
       )}
-      <input 
+      <input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}

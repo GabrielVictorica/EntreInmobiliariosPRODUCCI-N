@@ -182,7 +182,7 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
         if (!salePrice && operationType === 'venta') return alert("Ingresa el precio de cierre.");
 
         const record: ClosingRecord = {
-            id: initialData?.id || `CL-${Date.now()}`,
+            id: initialData?.id || crypto.randomUUID(),
             propertyId: isManualProperty ? undefined : propertyId,
             manualProperty: isManualProperty ? manualProperty : undefined,
             buyerClientId: isManualBuyer ? undefined : buyerClientId,
@@ -550,8 +550,8 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
                                             type="button"
                                             onClick={() => setReferralSidesApplied(1)}
                                             className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${referralSidesApplied === 1
-                                                    ? 'bg-amber-600 text-white border-amber-600 shadow-md'
-                                                    : 'bg-white text-amber-800 border-amber-300 hover:bg-amber-50'
+                                                ? 'bg-amber-600 text-white border-amber-600 shadow-md'
+                                                : 'bg-white text-amber-800 border-amber-300 hover:bg-amber-50'
                                                 }`}
                                         >
                                             1 Punta (3%)
@@ -560,8 +560,8 @@ const ClosingForm: React.FC<ClosingFormProps> = ({ properties, buyers, onSave, o
                                             type="button"
                                             onClick={() => setReferralSidesApplied(2)}
                                             className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${referralSidesApplied === 2
-                                                    ? 'bg-amber-600 text-white border-amber-600 shadow-md'
-                                                    : 'bg-white text-amber-800 border-amber-300 hover:bg-amber-50'
+                                                ? 'bg-amber-600 text-white border-amber-600 shadow-md'
+                                                : 'bg-white text-amber-800 border-amber-300 hover:bg-amber-50'
                                                 }`}
                                         >
                                             2 Puntas (6%)

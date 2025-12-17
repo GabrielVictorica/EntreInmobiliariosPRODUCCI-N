@@ -267,7 +267,7 @@ const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
     // 3. Finalize Activity
     const finalizeActivity = (contactId?: string, autoNotes?: string, refId?: string, keepOpen?: boolean) => {
         const newActivity: ActivityRecord = {
-            id: `act-${Date.now()}`,
+            id: crypto.randomUUID(),
             date: formatDateKey(weekDates[selectedDayIndex]),
             type: selectedType,
             contactId: contactId || selectedContact?.id,

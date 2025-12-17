@@ -1006,7 +1006,8 @@ export default function App() {
     // If it's an EDIT, the form passed the EXISTING ID.
     // If it's NEW, the form passed `CL-${Date.now()}`.
 
-    const isNew = closing.id.toString().startsWith('CL-');
+    // Check if ID exists in current logs to determine if it's new
+    const isNew = !closingLogs.some(c => c.id === closing.id);
 
     // Optimistic Update
     if (isNew) {
@@ -1023,10 +1024,7 @@ export default function App() {
 
       if (isNew) {
         // INSERT
-        // Remove temp ID
-        if (typeof dbPayload.id === 'string' && dbPayload.id.startsWith('CL-')) {
-          delete (dbPayload as any).id;
-        }
+        // If isNew, we now send the client-generated UUID to Supabase, so no need to delete ID.
         const { data, error } = await supabase.from('closing_logs').insert(dbPayload).select().single();
         // Update local state with real ID if successful
         if (data) {
@@ -1062,7 +1060,7 @@ export default function App() {
       }
 
       const act: ActivityRecord = {
-        id: `act-close-${Date.now()}`,
+        id: crypto.randomUUID(),
         date: closing.date,
         type: 'cierre',
         contactName: contactName,
