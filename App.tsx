@@ -592,6 +592,10 @@ export default function App() {
 
 
   // --- TRAKING METRICS ---
+  useEffect(() => {
+    console.log("🔥 APP VERSION: DEBUG_V3_CHECK_ENV");
+    console.log("🔥 SUPABASE URL:", import.meta.env.VITE_SUPABASE_URL);
+  }, []);
 
   // 1. Current Billing (Annual Reset)
   const currentTotalBilling = useMemo(() => {
