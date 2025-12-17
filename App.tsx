@@ -665,7 +665,11 @@ export default function App() {
   const hasLoadedOnce = React.useRef(false);
   const loadAllData = async (activeUserId?: string, isMotherOverride?: boolean, teamUserOverride?: string | null) => {
     const uid = activeUserId || session?.user?.id;
-    if (!uid) return;
+    console.log("🔥 LOAD ALL DATA START. UID:", uid);
+    if (!uid) {
+      console.log("🔥 LOAD ABORTED: No UID");
+      return;
+    }
 
     const isMom = isMotherOverride !== undefined ? isMotherOverride : isMother;
     const teamUser = teamUserOverride !== undefined ? teamUserOverride : selectedTeamUser;
@@ -767,8 +771,10 @@ export default function App() {
   useEffect(() => {
     // 1. Initial Session Check (Critical for Reloads)
     supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log("🔥 GET SESSION RESULT:", session ? "User Found" : "No Session");
       setSession(session);
       if (session) {
+        console.log("🔥 CALLING INITIALIZE USER...", session.user.id);
         initializeUser(session);
         // Load Financial Goals
         supabase.from('user_settings').select('goals').eq('user_id', session.user.id).single()
@@ -776,6 +782,7 @@ export default function App() {
             if (data && data.goals) setFinancialGoals(prev => ({ ...prev, ...data.goals }));
           });
       } else {
+        console.log("🔥 NO SESSION - ABORTING INIT");
         setIsAuthChecking(false);
       }
     });
@@ -1235,7 +1242,7 @@ export default function App() {
       super(props);
       this.state = { hasError: false, error: null, errorInfo: null };
     }
-    public state = { hasError: false, error: null, errorInfo: null };
+
 
     static getDerivedStateFromError(error: any) {
       return { hasError: true };
