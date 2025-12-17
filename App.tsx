@@ -988,9 +988,15 @@ export default function App() {
         await supabase.from('closing_logs').update(dbPayload).eq('id', id);
       }
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error saving closing:", err);
-      // Ideally revert optimistic update here on error
+      // Revert optimistic update
+      if (isNew) {
+        setClosingLogs(prev => prev.filter(c => c.id !== closing.id));
+      } else {
+        // Hard to revert update without backup, but at least warn user
+      }
+      alert(`Error guardando el cierre. Intenta de nuevo.\nDetalle: ${err.message || JSON.stringify(err)}`);
     }
 
     // Auto-create Activity 'cierre' (Only for NEW records to avoid duplication?)
@@ -1197,19 +1203,23 @@ export default function App() {
   };
 
   // --- ERROR BOUNDARY COMPONENT ---
-  class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: any, errorInfo: any }> {
-    constructor(props: any) {
+  // --- ERROR BOUNDARY COMPONENT ---
+  interface ErrorBoundaryState {
+    hasError: boolean;
+    error: Error | null;
+  }
+
+  class ErrorBoundary extends React.Component<{ children: React.ReactNode }, ErrorBoundaryState> {
+    constructor(props: { children: React.ReactNode }) {
       super(props);
-      this.state = { hasError: false, error: null, errorInfo: null };
+      this.state = { hasError: false, error: null };
     }
 
-
-    static getDerivedStateFromError(error: any) {
-      return { hasError: true };
+    static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+      return { hasError: true, error };
     }
 
-    componentDidCatch(error: any, errorInfo: any) {
-      this.setState({ error, errorInfo });
+    componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
       console.error("Uncaught error:", error, errorInfo);
     }
 
@@ -1220,14 +1230,15 @@ export default function App() {
             <h1 className="text-3xl font-bold mb-4 text-red-600">¡Ups! Algo salió mal.</h1>
             <p className="mb-4 text-lg">La aplicación ha encontrado un error inesperado.</p>
             <div className="bg-white p-6 rounded-xl shadow-lg border border-red-200 max-w-2xl w-full overflow-auto">
-              <details className="whitespace-pre-wrap">
-                <summary className="font-bold cursor-pointer mb-2 text-red-500">Ver detalles del error</summary>
-                <p className="font-mono text-xs text-red-800 mb-4">{this.state.error && this.state.error.toString()}</p>
-                <p className="font-mono text-xs text-gray-500">{this.state.errorInfo && this.state.errorInfo.componentStack}</p>
-              </details>
+              <pre className="whitespace-pre-wrap text-xs text-red-800">
+                {this.state.error?.toString()}
+              </pre>
             </div>
             <button
-              onClick={() => window.location.reload()}
+              onClick={() => {
+                this.setState({ hasError: false, error: null });
+                window.location.reload();
+              }}
               className="mt-8 px-6 py-3 bg-[#364649] text-white rounded-xl font-bold hover:bg-[#2C3A3D] transition-colors"
             >
               Recargar Aplicación
