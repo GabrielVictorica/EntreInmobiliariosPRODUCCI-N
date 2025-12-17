@@ -891,7 +891,14 @@ export default function App() {
     setEditingClientId(null);
     setEditingClientId(null);
     navigateTo('dashboard');
-    try { await supabase.from('seller_clients').upsert(mapSellerToDB(newRecord, session.user.id)); } catch (err) { console.error(err); }
+    try {
+      const { error } = await supabase.from('seller_clients').upsert(mapSellerToDB(newRecord, session.user.id));
+      if (error) throw error;
+      alert("CLIENTE GUARDADO OK");
+    } catch (err: any) {
+      console.error(err);
+      alert("ERROR GUARDANDO CLIENTE: " + (err.message || JSON.stringify(err)));
+    }
   };
 
   const handleEditClient = (clientId: string) => { setEditingClientId(clientId); navigateTo('form'); };
@@ -917,7 +924,7 @@ export default function App() {
       alert("PROPIEDAD GUARDADA OK");
     } catch (err: any) {
       console.error(err);
-      alert("ERROR GUARDANDO PROPIEDAD: " + err.message);
+      alert("ERROR GUARDANDO PROPIEDAD: " + (err.message || JSON.stringify(err)));
     }
   };
 
@@ -930,7 +937,14 @@ export default function App() {
     if (!session?.user) return;
     setMarketingLogs(prev => [log, ...prev]);
     setMarketingModalOpen(false);
-    try { await supabase.from('property_marketing_logs').upsert(mapMarketingToDB(log, session.user.id)); } catch (err) { console.error(err); }
+    try {
+      const { error } = await supabase.from('property_marketing_logs').upsert(mapMarketingToDB(log, session.user.id));
+      if (error) throw error;
+      alert("MARKETING GUARDADO OK");
+    } catch (err: any) {
+      console.error(err);
+      alert("ERROR GUARDANDO MARKETING: " + (err.message || JSON.stringify(err)));
+    }
   };
 
   // --- Handlers (Buyers) ---
@@ -953,7 +967,7 @@ export default function App() {
       alert("COMPRADOR GUARDADO OK");
     } catch (e: any) {
       console.error(e);
-      alert("ERROR GUARDANDO COMPRADOR: " + e.message);
+      alert("ERROR GUARDANDO COMPRADOR: " + (e.message || JSON.stringify(e)));
     }
   };
   const handleEditBuyerClient = (id: string) => { setEditingBuyerClientId(id); navigateTo('buyer-client-form'); };
