@@ -467,6 +467,7 @@ export default function App() {
   const [closingLogs, setClosingLogs] = useState<ClosingRecord[]>([]); // NEW: Closings
 
   const [loading, setLoading] = useState(true);
+  const [debugError, setDebugError] = useState<string | null>(null); // DEBUG: Show visible errors
 
   // Edit & Selection State
   const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null);
@@ -741,7 +742,7 @@ export default function App() {
     } catch (error: any) {
       console.error("Error loading VITAL data from Supabase:", error);
       console.error("Critical Data Load Error:", error.message);
-      // alert disabled for UX
+      setDebugError("Error de Carga: " + (error.message || "Desconocido")); // Show to user
     } finally {
       setIsAuthChecking(false);
       setLoading(false); // Ensure loading is off even on error
@@ -1399,6 +1400,19 @@ export default function App() {
 
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto relative no-scrollbar">
+          {/* DEBUG BANNER */}
+          {debugError && (
+            <div className="bg-red-600 text-white px-6 py-2 text-sm font-bold flex justify-between items-center shadow-md animate-pulse z-50 sticky top-0">
+              <span className="flex items-center gap-2">⚠️ {debugError}</span>
+              <button
+                onClick={() => window.location.reload()}
+                className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded text-xs uppercase"
+              >
+                Recargar
+              </button>
+            </div>
+          )}
+
           <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-[#364649]/10 px-8 py-4 flex justify-between items-center shadow-sm">
             {/* Header Content Omitted for brevity, assuming standard header */}
             <div className="flex items-center gap-4">
