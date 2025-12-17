@@ -678,7 +678,7 @@ export default function App() {
         supabase.from('visits').select('*'),
         supabase.from('property_marketing_logs').select('*').order('date', { ascending: false }),
         supabase.from('activities').select('*'),
-        supabase.from('user_settings').select('*').eq('user_id', session.user.id).maybeSingle(),
+        supabase.from('user_settings').select('*').eq('user_id', uid).maybeSingle(),
         supabase.from('closing_logs').select('*')
       ]);
 
