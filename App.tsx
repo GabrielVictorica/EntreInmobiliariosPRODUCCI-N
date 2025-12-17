@@ -648,28 +648,18 @@ export default function App() {
     if (!hasLoadedOnce.current) setLoading(true);
 
 
-    // Standard Parallel loading (No killing)
-    const results = await Promise.all([
-      supabase.from('seller_clients').select('*'),
-      supabase.from('properties').select('*'),
-      supabase.from('buyer_clients').select('*'),
-      supabase.from('buyer_searches').select('*'),
-      supabase.from('visits').select('*'),
-      supabase.from('property_marketing_logs').select('*').order('date', { ascending: false }),
-      supabase.from('activities').select('*'),
+    // STAGE 1: VITAL DASHBOARD DATA (Fastest possible TTI)
+    // We load only what's needed for the Main Dashboard metrics & Agenda.
+    const vitalResults = await Promise.all([
       supabase.from('user_settings').select('*').eq('user_id', uid).maybeSingle(),
-      supabase.from('closing_logs').select('*')
+      supabase.from('closing_logs').select('*'),
+      supabase.from('visits').select('*'),
+      supabase.from('activities').select('*')
     ]);
 
-    const [c, p, bc, bs, v, m, act, settings, closings] = results;
+    const [settings, closings, v, act] = vitalResults;
 
-    // Check for real errors
-    const errors = results.filter(r => r.error).map(r => r.error);
-    if (errors.length > 0) {
-      console.error("Supabase Query Errors:", errors);
-      throw new Error(errors[0]?.message);
-    }
-
+    // --- PROCESS STAGE 1 DATA ---
     if (settings.data) {
       setFinancialGoals(prev => ({
         ...prev,
@@ -685,44 +675,74 @@ export default function App() {
       }));
     }
 
-    if (c.data) {
-      const mapped = c.data.filter(x => !!x).map(mapSellerFromDB);
-      setClients(isMom && teamUser ? mapped.filter(x => x.userId === teamUser) : mapped);
-    }
-    if (p.data) {
-      const mapped = p.data.filter(x => !!x).map(mapPropertyFromDB);
-      setProperties(isMom && teamUser ? mapped.filter(x => x.userId === teamUser) : mapped);
-    }
-    if (bc.data) {
-      const mapped = bc.data.filter(x => !!x).map(mapBuyerFromDB);
-      setBuyerClients(isMom && teamUser ? mapped.filter(x => x.userId === teamUser) : mapped);
-    }
-    if (bs.data) {
-      const mapped = bs.data.filter(x => !!x).map(mapSearchFromDB);
-      setBuyerSearches(isMom && teamUser ? mapped.filter(x => x.userId === teamUser) : mapped);
+    const teamUserFilter = isMom && teamUser;
+
+    if (closings.data) {
+      const mapped = closings.data.filter(x => !!x).map(mapClosingFromDB);
+      setClosingLogs(mapped);
     }
     if (v.data) {
       const mapped = v.data.filter(x => !!x).map(mapVisitFromDB);
-      setVisits(isMom && teamUser ? mapped.filter(x => x.userId === teamUser) : mapped);
+      setVisits(teamUserFilter ? mapped.filter(x => x.userId === teamUser) : mapped);
+    }
+    if (act.data) {
+      const mapped = act.data.filter(x => !!x).map(mapActivityFromDB);
+      setActivities(teamUserFilter ? mapped.filter(x => x.userId === teamUser) : mapped);
+    }
+
+    // 🚀 UNBLOCK UI NOW (Progressive Loading)
+    // The user sees the Dashboard with KPIs immediately.
+    if (!hasLoadedOnce.current) {
+      setLoading(false);
+      hasLoadedOnce.current = true;
+    }
+    setIsDataReady(true);
+
+
+    // STAGE 2: HEAVY LISTS (Background load)
+    // These are needed for Client Lists, Property Lists and Deep Calculation (Pipeline).
+    // They will appear seamlessly when loaded.
+    const heavyResults = await Promise.all([
+      supabase.from('seller_clients').select('*'),
+      supabase.from('properties').select('*'),
+      supabase.from('buyer_clients').select('*'),
+      supabase.from('buyer_searches').select('*'),
+      supabase.from('property_marketing_logs').select('*').order('date', { ascending: false })
+    ]);
+
+    const [c, p, bc, bs, m] = heavyResults;
+
+    // Check for errors in background load
+    const bgErrors = heavyResults.filter(r => r.error).map(r => r.error);
+    if (bgErrors.length > 0) console.error("Background Load Errors:", bgErrors); // Don't crash UI for background errors
+
+    if (c.data) {
+      const mapped = c.data.filter(x => !!x).map(mapSellerFromDB);
+      setClients(teamUserFilter ? mapped.filter(x => x.userId === teamUser) : mapped);
+    }
+    if (p.data) {
+      const mapped = p.data.filter(x => !!x).map(mapPropertyFromDB);
+      setProperties(teamUserFilter ? mapped.filter(x => x.userId === teamUser) : mapped);
+    }
+    if (bc.data) {
+      const mapped = bc.data.filter(x => !!x).map(mapBuyerFromDB);
+      setBuyerClients(teamUserFilter ? mapped.filter(x => x.userId === teamUser) : mapped);
+    }
+    if (bs.data) {
+      const mapped = bs.data.filter(x => !!x).map(mapSearchFromDB);
+      setBuyerSearches(teamUserFilter ? mapped.filter(x => x.userId === teamUser) : mapped);
     }
     if (m.data) {
       const mapped = m.data.filter(x => !!x).map(mapMarketingFromDB);
       setMarketingLogs(mapped);
     }
-    if (act.data) {
-      const mapped = act.data.filter(x => !!x).map(mapActivityFromDB);
-      setActivities(isMom && teamUser ? mapped.filter(x => x.userId === teamUser) : mapped);
-    }
-    if (closings.data) {
-      const mapped = closings.data.filter(x => !!x).map(mapClosingFromDB);
-      setClosingLogs(mapped);
-    }
-
 
   } catch (error: any) {
-    console.error("Error loading data from Supabase:", error);
-    alert("Error cargando datos: " + (error.message || JSON.stringify(error)));
+    console.error("Error loading VITAL data from Supabase:", error);
+    alert("Error crítico cargando datos iniciales: " + (error.message || JSON.stringify(error)));
   } finally {
+    setIsAuthChecking(false);
+    setLoading(false); // Ensure loading is off even on error
   }
 };
 
