@@ -653,14 +653,28 @@ export default function App() {
     try {
       // STAGE 1: VITAL DASHBOARD DATA (Fastest possible TTI)
       // We load only what's needed for the Main Dashboard metrics & Agenda.
+
+      // Use native fetch for closing_logs due to Supabase client issues
+      const SUPABASE_URL = 'https://whfoflccshoztjlesnhh.supabase.co';
+      const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoZm9mbGNjc2hvenRqbGVzbmhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MzUwMzEsImV4cCI6MjA4MTMxMTAzMX0.rPQdO1qCovC9WP3ttlDOArvTI7I15lg7fnOPkJseDos';
+
+      const closingsPromise = fetch(`${SUPABASE_URL}/rest/v1/closing_logs?select=*`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${session?.access_token || SUPABASE_KEY}`
+        }
+      }).then(r => r.json());
+
       const vitalResults = await Promise.all([
         supabase.from('user_settings').select('*').eq('user_id', uid).maybeSingle(),
-        supabase.from('closing_logs').select('*'),
+        closingsPromise,
         supabase.from('visits').select('*'),
         supabase.from('activities').select('*')
       ]);
 
-      const [settings, closings, v, act] = vitalResults;
+      const [settings, closingsData, v, act] = vitalResults;
 
       // --- PROCESS STAGE 1 DATA ---
       if (settings.data) {
@@ -680,15 +694,14 @@ export default function App() {
 
       const teamUserFilter = isMom && teamUser;
 
-      if (closings.data) {
-        console.log(">>> LOADING CLOSINGS - Raw data:", closings.data);
-        const mapped = closings.data.filter(x => !!x).map(mapClosingFromDB);
+      // Process closings data (from native fetch - already an array)
+      if (Array.isArray(closingsData) && closingsData.length > 0) {
+        console.log(">>> LOADING CLOSINGS - Raw data:", closingsData);
+        const mapped = closingsData.filter((x: any) => !!x).map(mapClosingFromDB);
         console.log(">>> LOADING CLOSINGS - Mapped data:", mapped);
         setClosingLogs(mapped);
-      } else if (closings.error) {
-        console.error(">>> CLOSINGS LOAD ERROR:", closings.error);
       } else {
-        console.log(">>> CLOSINGS - No data returned");
+        console.log(">>> CLOSINGS - No data or empty array:", closingsData);
       }
       if (v.data) {
         const mapped = v.data.filter(x => !!x).map(mapVisitFromDB);
