@@ -694,6 +694,7 @@ export default function App() {
     // The user sees the Dashboard with KPIs immediately.
     if (!hasLoadedOnce.current) {
       setLoading(false);
+      setIsAuthChecking(false); // CRITICAL: Clear strict auth blocking
       hasLoadedOnce.current = true;
     }
     setIsDataReady(true);
