@@ -593,7 +593,7 @@ export default function App() {
 
   // --- TRAKING METRICS ---
   useEffect(() => {
-    console.log("🔥 APP VERSION: DEBUG_V4_TRACING");
+    console.log("🔥 APP VERSION: DEBUG_V5_DEEP_TRACE");
     console.log("🔥 SUPABASE URL:", import.meta.env.VITE_SUPABASE_URL);
   }, []);
 
@@ -749,16 +749,21 @@ export default function App() {
 
   // --- Sequenced Initialization ---
   const initializeUser = async (currentSession: any) => {
+    console.log("🔥 INIT USER START", currentSession?.user?.id);
     if (!currentSession?.user) {
+      console.log("🔥 INIT USER ABORT: No Session");
       setIsAuthChecking(false);
       return;
     }
 
     try {
       // 1. Check Role FIRST
+      console.log("🔥 CHECKING ROLE...");
       const isMom = await checkUserRole(currentSession.user.id);
+      console.log("🔥 ROLE RESULT:", isMom);
 
       // 2. Load Data (passing explicit overrides to avoid stale state)
+      console.log("🔥 CALLING LOAD ALL DATA...");
       await loadAllData(currentSession.user.id, isMom, selectedTeamUser);
     } catch (error) {
       console.error("Initialization Failed", error);
@@ -775,7 +780,7 @@ export default function App() {
       console.log("🔥 GET SESSION RESULT:", session ? "User Found" : "No Session");
       setSession(session);
       if (session) {
-        console.log("🔥 CALLING INITIALIZE USER...", session.user.id);
+        console.log("🔥 CALLING INITIALIZE USER FROM GETSESSION...", session.user.id);
         initializeUser(session);
         // Load Financial Goals
         supabase.from('user_settings').select('goals').eq('user_id', session.user.id).single()
@@ -789,12 +794,13 @@ export default function App() {
     });
 
     // 2. Auth State Listener (For Sign In / Sign Out events)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("🔥 AUTH CHANGE EVENT:", event);
       setSession(session);
       if (session) {
-        // Start sequenced init (only if not already done by getSession - though redundant calls are safe due to React batching usually, let's keep it simple)
-        // Note: onAuthStateChange OFTEN fires on mount too. To avoid double init, we rely on React state updates or just let it happen (idempotent).
+        console.log("🔥 AUTH CHANGE: SESSION FOUND, INIT USER...");
         await initializeUser(session);
+        // ...
 
         // Load Financial Goals
         supabase.from('user_settings').select('goals').eq('user_id', session.user.id).single()
