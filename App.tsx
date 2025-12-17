@@ -1460,45 +1460,6 @@ export default function App() {
 
 
 
-        {/* --- DEBUG HUD (Temporary) --- */}
-        <div className="fixed bottom-4 right-4 bg-black/80 text-white p-4 rounded-lg text-xs z-50 font-mono pointer-events-none shadow-2xl border border-white/20">
-          <p className="font-bold text-yellow-400 mb-1 border-b border-white/20 pb-1">DEBUG STATUS</p>
-          <p>UID: <span className="font-bold">{session?.user?.id?.slice(0, 8) || 'NONE'}</span></p>
-          <p>Email: {session?.user?.email || 'NONE'}</p>
-          <p>Closings: <span className={closingLogs.length === 0 ? "text-red-400 font-bold" : "text-green-400 font-bold"}>{closingLogs.length}</span></p>
-          <p>Clients: <span className={clients.length === 0 ? "text-red-400" : "text-green-400"}>{clients.length}</span></p>
-          <p>Auth Check: {isAuthChecking ? 'YES' : 'NO'}</p>
-          <div className="mt-1 border-t border-white/20 pt-1">
-            <p>IsMom: {isMother ? 'YES' : 'NO'}</p>
-            <p>TeamUser: {selectedTeamUser || 'NULL'}</p>
-          </div>
-          <button
-            onClick={() => loadAllData(session?.user?.id, isMother, selectedTeamUser)}
-            className="mt-2 w-full bg-blue-600 hover:bg-blue-500 text-white p-1 rounded font-bold pointer-events-auto"
-          >
-            FORCE LOAD
-          </button>
-
-          <button
-            onClick={async () => {
-              try {
-                alert("Iniciando Test Manual...");
-                const { data, error } = await supabase.from('seller_clients').select('*').limit(5);
-                if (error) alert("ERROR SQL: " + error.message);
-                else alert(`ÉXITO SQL: Recibidos ${data?.length} registros.`);
-              } catch (e: any) {
-                alert("CRASH: " + e.message);
-              }
-            }}
-            className="mt-1 w-full bg-red-600 hover:bg-red-500 text-white p-1 rounded font-bold pointer-events-auto"
-          >
-            TEST CONNECTION
-          </button>
-          <div className="mt-1 pt-1 border-t border-white/20 text-[10px] text-gray-400">
-            {import.meta.env.VITE_SUPABASE_URL ? 'URL: OK' : 'URL: MISSING'}
-          </div>
-        </div>
-
       </div>
     </ErrorBoundary>
   );
