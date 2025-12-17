@@ -1045,9 +1045,16 @@ export default function App() {
       if (isNew) {
         // INSERT
         // If isNew, we now send the client-generated UUID to Supabase, so no need to delete ID.
-        const { data, error } = await supabase.from('closing_logs').insert(dbPayload).select().single();
-        console.log("SUPABASE RESPONSE:", { data, error });
-        if (error) throw error;
+        console.log(">>> ABOUT TO CALL SUPABASE INSERT...");
+        const result = await supabase.from('closing_logs').insert(dbPayload).select().single();
+        console.log(">>> SUPABASE CALL COMPLETED");
+        console.log("SUPABASE RESPONSE:", JSON.stringify(result, null, 2));
+        const { data, error } = result;
+        if (error) {
+          console.error("SUPABASE ERROR:", error);
+          throw error;
+        }
+        console.log(">>> INSERT SUCCESS!");
         // Update local state with real ID if successful
         if (data) {
           const realRecord = mapClosingFromDB(data);
