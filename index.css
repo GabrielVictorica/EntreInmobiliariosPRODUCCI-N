@@ -1,0 +1,42 @@
+/* Anti-flickering base styles */
+html, body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Prevent layout shift by reserving space */
+#root {
+  min-height: 100vh;
+  background-color: #E0D8CC;
+}
+
+/* Prevent FOUC (Flash of Unstyled Content) */
+html {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Optimize animations for performance */
+.animate-fade-in-up,
+.animate-slide-in-right,
+.animate-scale-in {
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+}
+
+/* Smooth transitions without jank */
+* {
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+/* Prevent content jump on data load */
+[data-loading="true"] {
+  min-height: 200px;
+}
+
+/* Hardware acceleration for smooth animations */
+.btn-hover-effect {
+  transform: translateZ(0);
+}
