@@ -402,9 +402,9 @@ const mapClosingFromDB = (db: any): ClosingRecord => ({
 const mapClosingToDB = (c: ClosingRecord, activeUserId: string) => ({
   id: c.id,
   user_id: c.userId || activeUserId,
-  property_id: c.propertyId,
+  property_id: c.propertyId || null,
   manual_property: c.manualProperty,
-  buyer_client_id: c.buyerClientId,
+  buyer_client_id: c.buyerClientId || null,
   manual_buyer: c.manualBuyer,
   date: c.date,
   agent_name: c.agentName,
