@@ -1038,10 +1038,15 @@ export default function App() {
       const { id, ...closingData } = closing;
       const dbPayload = mapClosingToDB(closing, session.user.id);
 
+      // DIAGNOSTIC: Log the payload being sent
+      console.log("=== CLOSING PAYLOAD DIAGNOSTIC ===");
+      console.log("Payload:", JSON.stringify(dbPayload, null, 2));
+
       if (isNew) {
         // INSERT
         // If isNew, we now send the client-generated UUID to Supabase, so no need to delete ID.
         const { data, error } = await supabase.from('closing_logs').insert(dbPayload).select().single();
+        console.log("SUPABASE RESPONSE:", { data, error });
         if (error) throw error;
         // Update local state with real ID if successful
         if (data) {
