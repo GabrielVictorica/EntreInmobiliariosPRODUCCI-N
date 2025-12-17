@@ -765,18 +765,17 @@ const initializeUser = async (currentSession: any) => {
   }
 };
 
+// Guard against double-initialization (Brave/React Strict Mode/Race Conditions)
+const hasInitialized = useRef(false);
+
 useEffect(() => {
   // 1. Initial Session Check (Critical for Reloads)
   supabase.auth.getSession().then(({ data: { session } }) => {
     setSession(session);
-    if (session) {
+    if (session && !hasInitialized.current) {
+      hasInitialized.current = true;
       initializeUser(session);
-      // Load Financial Goals
-      supabase.from('user_settings').select('goals').eq('user_id', session.user.id).single()
-        .then(({ data }) => {
-          if (data && data.goals) setFinancialGoals(prev => ({ ...prev, ...data.goals }));
-        });
-    } else {
+    } else if (!session) {
       setIsAuthChecking(false);
     }
   });
@@ -784,17 +783,19 @@ useEffect(() => {
   // 2. Auth State Listener (For Sign In / Sign Out events)
   const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
     setSession(session);
-    if (session) {
-      await initializeUser(session);
-      // Load Financial Goals
-      supabase.from('user_settings').select('goals').eq('user_id', session.user.id).single()
-        .then(({ data }) => {
-          if (data && data.goals) setFinancialGoals(prev => ({ ...prev, ...data.goals }));
-        });
-    } else {
+
+    if (event === 'SIGNED_OUT') {
+      hasInitialized.current = false;
+      hasLoadedOnce.current = false; // Reset for next login
       setClients([]);
       setProperties([]);
       setIsAuthChecking(false);
+      return;
+    }
+
+    if (session && !hasInitialized.current) {
+      hasInitialized.current = true;
+      await initializeUser(session);
     }
   });
 
