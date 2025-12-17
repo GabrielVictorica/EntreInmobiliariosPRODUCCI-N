@@ -740,7 +740,8 @@ export default function App() {
 
     } catch (error: any) {
       console.error("Error loading VITAL data from Supabase:", error);
-      alert("Error crítico cargando datos iniciales: " + (error.message || JSON.stringify(error)));
+      console.error("Critical Data Load Error:", error.message);
+      // alert disabled for UX
     } finally {
       setIsAuthChecking(false);
       setLoading(false); // Ensure loading is off even on error
