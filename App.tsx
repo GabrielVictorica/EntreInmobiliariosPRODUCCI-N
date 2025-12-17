@@ -875,7 +875,7 @@ export default function App() {
 
   // --- Handlers (Sellers) ---
   const handleSaveClient = async (record: ClientRecord) => {
-    if (!session?.user) return;
+    if (!session?.user) { alert("ERROR DE SESIÓN: No hay usuario autenticado."); return; }
 
     // Ensure agent ownership details
     const newRecord = {
@@ -898,7 +898,7 @@ export default function App() {
   const handleAssignProperty = (clientId: string) => { setPreSelectedClientId(clientId); setEditingPropertyId(null); navigateTo('property-form'); };
 
   const handleSaveProperty = async (record: PropertyRecord) => {
-    if (!session?.user) return;
+    if (!session?.user) { alert("ERROR DE SESIÓN: No hay usuario autenticado."); return; }
 
     const newRecord = {
       ...record,
@@ -910,7 +910,15 @@ export default function App() {
     navigateTo('properties-list');
     setEditingPropertyId(null);
     setPreSelectedClientId(null);
-    try { await supabase.from('properties').upsert(mapPropertyToDB(newRecord, session.user.id)); } catch (err) { console.error(err); }
+    setPreSelectedClientId(null);
+    try {
+      const { error } = await supabase.from('properties').upsert(mapPropertyToDB(newRecord, session.user.id));
+      if (error) throw error;
+      alert("PROPIEDAD GUARDADA OK");
+    } catch (err: any) {
+      console.error(err);
+      alert("ERROR GUARDANDO PROPIEDAD: " + err.message);
+    }
   };
 
   const handleEditProperty = (id: string) => { setEditingPropertyId(id); navigateTo('property-form'); };
@@ -927,7 +935,7 @@ export default function App() {
 
   // --- Handlers (Buyers) ---
   const handleSaveBuyerClient = async (record: BuyerClientRecord) => {
-    if (!session?.user) return;
+    if (!session?.user) { alert("ERROR DE SESIÓN: No hay usuario autenticado."); return; }
 
     const newRecord = {
       ...record,
@@ -938,7 +946,15 @@ export default function App() {
     else setBuyerClients([newRecord, ...buyerClients]);
     setEditingBuyerClientId(null);
     navigateTo('buyer-clients-list');
-    try { await supabase.from('buyer_clients').upsert(mapBuyerToDB(newRecord, session.user.id)); } catch (e) { }
+    navigateTo('buyer-clients-list');
+    try {
+      const { error } = await supabase.from('buyer_clients').upsert(mapBuyerToDB(newRecord, session.user.id));
+      if (error) throw error;
+      alert("COMPRADOR GUARDADO OK");
+    } catch (e: any) {
+      console.error(e);
+      alert("ERROR GUARDANDO COMPRADOR: " + e.message);
+    }
   };
   const handleEditBuyerClient = (id: string) => { setEditingBuyerClientId(id); navigateTo('buyer-client-form'); };
   const handleCreateSearch = (buyerClientId: string) => { setPreSelectedBuyerClientId(buyerClientId); setEditingSearchId(null); navigateTo('buyer-search-form'); };
@@ -981,7 +997,7 @@ export default function App() {
 
   // --- Handlers (Closings) ---
   const handleSaveClosing = async (closing: ClosingRecord) => {
-    if (!session?.user) return;
+    if (!session?.user) { alert("ERROR DE SESIÓN: No hay usuario autenticado."); return; }
 
     // Check if this is an update or new insert
     // Ideally we check if ID is not 'CL-...' and exists in our list.
