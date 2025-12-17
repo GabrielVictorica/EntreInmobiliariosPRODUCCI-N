@@ -648,18 +648,26 @@ export default function App() {
     if (!hasLoadedOnce.current) setLoading(true);
 
     try {
-      // Parallel loading for maximum speed
-      const results = await Promise.all([
-        supabase.from('seller_clients').select('*'),
-        supabase.from('properties').select('*'),
-        supabase.from('buyer_clients').select('*'),
-        supabase.from('buyer_searches').select('*'),
-        supabase.from('visits').select('*'),
-        supabase.from('property_marketing_logs').select('*').order('date', { ascending: false }),
-        supabase.from('activities').select('*'),
-        supabase.from('user_settings').select('*').eq('user_id', uid).maybeSingle(),
-        supabase.from('closing_logs').select('*')
-      ]);
+      // TIMEOUT GUARDIAN: If Brave blocks request, it hangs forever. We force a timeout.
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("TIMEOUT_BRAVE_BLOCK")), 5000)
+      );
+
+      // Parallel loading with Timeout Race
+      const results = await Promise.race([
+        Promise.all([
+          supabase.from('seller_clients').select('*'),
+          supabase.from('properties').select('*'),
+          supabase.from('buyer_clients').select('*'),
+          supabase.from('buyer_searches').select('*'),
+          supabase.from('visits').select('*'),
+          supabase.from('property_marketing_logs').select('*').order('date', { ascending: false }),
+          supabase.from('activities').select('*'),
+          supabase.from('user_settings').select('*').eq('user_id', uid).maybeSingle(),
+          supabase.from('closing_logs').select('*')
+        ]),
+        timeoutPromise
+      ]) as any[]; // Cast result to array since we know Promise.all returns array
 
       const [c, p, bc, bs, v, m, act, settings, closings] = results;
 
@@ -719,9 +727,15 @@ export default function App() {
         setClosingLogs(mapped);
       }
 
+
     } catch (error: any) {
       console.error("Error loading data from Supabase:", error);
-      alert("Error cargando datos: " + (error.message || JSON.stringify(error)));
+
+      if (error.message === "TIMEOUT_BRAVE_BLOCK") {
+        alert("⚠️ CONEXIÓN BLOQUEADA POR EL NAVEGADOR\n\nTu navegador (Brave) ha bloqueado la conexión con la base de datos.\n\nSOLUCIÓN:\n1. Haz clic en el icono del LEÓN (Shields) en la barra de direcciones.\n2. Desactiva los escudos (Shields DOWN) para este sitio.\n3. Recarga la página.");
+      } else {
+        alert("Error cargando datos: " + (error.message || JSON.stringify(error)));
+      }
     } finally {
     }
   };
