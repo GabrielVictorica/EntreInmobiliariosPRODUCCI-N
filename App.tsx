@@ -1047,6 +1047,37 @@ export default function App() {
         if (data) {
           const realRecord = mapClosingFromDB(data);
           setClosingLogs(prev => prev.map(c => c.id === closing.id ? realRecord : c));
+
+          // Auto-create Activity 'cierre' (Only for NEW records)
+          // MOVED INSIDE SUCCESS BLOCK: prevents phantom activities if closing fails.
+          const propDesc = closing.manualProperty || (closing.propertyId ? properties.find(p => p.id === closing.propertyId)?.address.street : 'Propiedad');
+
+          // Determine contact name
+          let contactName = closing.manualBuyer || 'Comprador Externo';
+          if (closing.buyerClientId) {
+            const buyer = buyerClients.find(b => b.id === closing.buyerClientId);
+            if (buyer) contactName = buyer.name;
+          }
+
+          const act: ActivityRecord = {
+            id: crypto.randomUUID(),
+            date: closing.date,
+            type: 'cierre',
+            contactName: contactName,
+            contactId: closing.buyerClientId,
+            notes: `Cierre registrado: ${propDesc}. Facturación: ${closing.currency} ${closing.totalBilling.toLocaleString()}`,
+            createdAt: new Date().toISOString()
+          };
+          // Save activity to state and DB
+          handleSaveActivity(act);
+
+          // Update property status to 'vendida' ONLY if it's an internal property
+          if (closing.propertyId) {
+            const prop = properties.find(p => p.id === closing.propertyId);
+            if (prop) {
+              handleSaveProperty({ ...prop, status: 'vendida' });
+            }
+          }
         }
       } else {
         // UPDATE
@@ -1063,40 +1094,6 @@ export default function App() {
         // Hard to revert update without backup, but at least warn user
       }
       alert(`Error guardando el cierre. Intenta de nuevo.\nDetalle: ${err.message || JSON.stringify(err)}`);
-    }
-
-    // Auto-create Activity 'cierre' (Only for NEW records to avoid duplication?)
-    // Or should we update the activity too? For now, let's only create on NEW.
-    if (isNew) {
-      const propDesc = closing.manualProperty || (closing.propertyId ? properties.find(p => p.id === closing.propertyId)?.address.street : 'Propiedad');
-
-      // Determine contact name
-      let contactName = closing.manualBuyer || 'Comprador Externo';
-      if (closing.buyerClientId) {
-        const buyer = buyerClients.find(b => b.id === closing.buyerClientId);
-        if (buyer) contactName = buyer.name;
-      }
-
-      const act: ActivityRecord = {
-        id: crypto.randomUUID(),
-        date: closing.date,
-        type: 'cierre',
-        contactName: contactName,
-        contactId: closing.buyerClientId,
-        notes: `Cierre registrado: ${propDesc}. Facturación: ${closing.currency} ${closing.totalBilling.toLocaleString()}`,
-        createdAt: new Date().toISOString()
-      };
-      // Save activity to state and DB
-      handleSaveActivity(act);
-
-
-      // Update property status to 'vendida' ONLY if it's an internal property
-      if (closing.propertyId) {
-        const prop = properties.find(p => p.id === closing.propertyId);
-        if (prop) {
-          handleSaveProperty({ ...prop, status: 'vendida' });
-        }
-      }
     }
   };
 
