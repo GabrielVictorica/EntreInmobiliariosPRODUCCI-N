@@ -1464,6 +1464,22 @@ export default function App() {
           >
             FORCE LOAD
           </button>
+
+          <button
+            onClick={async () => {
+              try {
+                alert("Iniciando Test Manual...");
+                const { data, error } = await supabase.from('seller_clients').select('*').limit(5);
+                if (error) alert("ERROR SQL: " + error.message);
+                else alert(`ÉXITO SQL: Recibidos ${data?.length} registros.`);
+              } catch (e: any) {
+                alert("CRASH: " + e.message);
+              }
+            }}
+            className="mt-1 w-full bg-red-600 hover:bg-red-500 text-white p-1 rounded font-bold pointer-events-auto"
+          >
+            TEST CONNECTION
+          </button>
           <div className="mt-1 pt-1 border-t border-white/20 text-[10px] text-gray-400">
             {import.meta.env.VITE_SUPABASE_URL ? 'URL: OK' : 'URL: MISSING'}
           </div>
