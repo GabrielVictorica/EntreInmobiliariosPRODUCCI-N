@@ -650,7 +650,7 @@ export default function App() {
     try {
       // TIMEOUT GUARDIAN: If Brave blocks request, it hangs forever. We force a timeout.
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("TIMEOUT_BRAVE_BLOCK")), 5000)
+        setTimeout(() => reject(new Error("TIMEOUT_BRAVE_BLOCK")), 15000)
       );
 
       // Parallel loading with Timeout Race
@@ -732,7 +732,8 @@ export default function App() {
       console.error("Error loading data from Supabase:", error);
 
       if (error.message === "TIMEOUT_BRAVE_BLOCK") {
-        alert("⚠️ CONEXIÓN BLOQUEADA POR EL NAVEGADOR\n\nTu navegador (Brave) ha bloqueado la conexión con la base de datos.\n\nSOLUCIÓN:\n1. Haz clic en el icono del LEÓN (Shields) en la barra de direcciones.\n2. Desactiva los escudos (Shields DOWN) para este sitio.\n3. Recarga la página.");
+        console.warn("Slow connection detected (Brave blocking?)");
+        alert("La conexión está tardando más de lo normal. Si usas Brave y los datos no aparecen, intenta desactivar los 'Shields' para este sitio.");
       } else {
         alert("Error cargando datos: " + (error.message || JSON.stringify(error)));
       }
