@@ -378,6 +378,7 @@ const mapActivityToDB = (a: ActivityRecord, activeUserId: string) => ({
 
 const mapClosingFromDB = (db: any): ClosingRecord => ({
   id: db.id,
+  userId: db.user_id,
   propertyId: db.property_id,
   manualProperty: db.manual_property,
   buyerClientId: db.buyer_client_id,
@@ -400,6 +401,7 @@ const mapClosingFromDB = (db: any): ClosingRecord => ({
 
 const mapClosingToDB = (c: ClosingRecord, activeUserId: string) => ({
   id: c.id,
+  user_id: c.userId || activeUserId,
   property_id: c.propertyId,
   manual_property: c.manualProperty,
   buyer_client_id: c.buyerClientId,

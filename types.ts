@@ -327,6 +327,7 @@ export interface ActivityRecord {
 
 export interface ClosingRecord {
   id: string;
+  userId?: string;
   propertyId?: string;
   manualProperty?: string;
   buyerClientId?: string;
