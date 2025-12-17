@@ -1479,6 +1479,17 @@ export default function App() {
           />
         )}
 
+        {/* DEBUG FOOTER */}
+        <div className="fixed bottom-0 right-0 bg-black/80 text-[10px] text-white p-2 z-50 font-mono pointer-events-none opacity-50 hover:opacity-100">
+          <div className="flex flex-col gap-0.5">
+            <span>UID: {session?.user?.id?.slice(0, 8)}...</span>
+            <span>Role: {isMother ? 'MOTHER' : 'CHILD'}</span>
+            <span className="text-[#AA895F]">Data Status:</span>
+            <span>Closings: {closingLogs.length}</span>
+            <span>Clients: {clients.length} / Props: {properties.length}</span>
+          </div>
+        </div>
+
 
 
 
