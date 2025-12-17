@@ -1046,22 +1046,34 @@ export default function App() {
         // INSERT
         // If isNew, we now send the client-generated UUID to Supabase, so no need to delete ID.
         console.log(">>> ABOUT TO CALL SUPABASE INSERT...");
-        const result = await supabase.from('closing_logs').insert(dbPayload).select().single();
-        console.log(">>> SUPABASE CALL COMPLETED");
-        console.log("SUPABASE RESPONSE:", JSON.stringify(result, null, 2));
-        const { data, error } = result;
-        if (error) {
-          console.error("SUPABASE ERROR:", error);
-          throw error;
+        console.log(">>> Supabase client exists:", !!supabase);
+
+        try {
+          const result = await supabase.from('closing_logs').insert(dbPayload).select().single();
+          console.log(">>> SUPABASE CALL COMPLETED");
+          console.log("SUPABASE RESPONSE:", JSON.stringify(result, null, 2));
+          const { data, error } = result;
+          if (error) {
+            console.error("SUPABASE ERROR:", error);
+            throw error;
+          }
+          console.log(">>> INSERT SUCCESS!");
+        } catch (insertError: any) {
+          console.error(">>> INSERT FAILED WITH EXCEPTION:", insertError);
+          alert("Error en INSERT: " + (insertError.message || JSON.stringify(insertError)));
+          // Revert optimistic update
+          setClosingLogs(prev => prev.filter(c => c.id !== closing.id));
+          return; // Exit early on error
         }
-        console.log(">>> INSERT SUCCESS!");
-        // Update local state with real ID if successful
-        if (data) {
-          const realRecord = mapClosingFromDB(data);
+
+        // If we get here, insert was successful - now handle the rest
+        // Reload the data to get the fresh record
+        const { data: freshData } = await supabase.from('closing_logs').select().eq('id', dbPayload.id).single();
+        if (freshData) {
+          const realRecord = mapClosingFromDB(freshData);
           setClosingLogs(prev => prev.map(c => c.id === closing.id ? realRecord : c));
 
           // Auto-create Activity 'cierre' (Only for NEW records)
-          // MOVED INSIDE SUCCESS BLOCK: prevents phantom activities if closing fails.
           const propDesc = closing.manualProperty || (closing.propertyId ? properties.find(p => p.id === closing.propertyId)?.address.street : 'Propiedad');
 
           // Determine contact name
@@ -1090,6 +1102,8 @@ export default function App() {
               handleSaveProperty({ ...prop, status: 'vendida' });
             }
           }
+
+          alert("¡Cierre guardado exitosamente!");
         }
       } else {
         // UPDATE
