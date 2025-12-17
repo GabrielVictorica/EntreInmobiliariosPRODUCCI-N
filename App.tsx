@@ -665,17 +665,41 @@ export default function App() {
     if (!hasLoadedOnce.current) setLoading(true);
 
     try {
-      const [c, p, bc, bs, v, m, act, settings, closings] = await Promise.all([
-        supabase.from('seller_clients').select('*'),
-        supabase.from('properties').select('*'),
-        supabase.from('buyer_clients').select('*'),
-        supabase.from('buyer_searches').select('*'),
-        supabase.from('visits').select('*'),
-        supabase.from('property_marketing_logs').select('*').order('date', { ascending: false }),
-        supabase.from('activities').select('*'),
-        supabase.from('user_settings').select('*').eq('user_id', uid).maybeSingle(),
-        supabase.from('closing_logs').select('*')
-      ]);
+      console.log("🔥 FETCHING: seller_clients");
+      const c = await supabase.from('seller_clients').select('*');
+      console.log("🔥 DONE: seller_clients", c.data?.length || 0);
+
+      console.log("🔥 FETCHING: properties");
+      const p = await supabase.from('properties').select('*');
+      console.log("🔥 DONE: properties", p.data?.length || 0);
+
+      console.log("🔥 FETCHING: buyer_clients");
+      const bc = await supabase.from('buyer_clients').select('*');
+      console.log("🔥 DONE: buyer_clients", bc.data?.length || 0);
+
+      console.log("🔥 FETCHING: buyer_searches");
+      const bs = await supabase.from('buyer_searches').select('*');
+      console.log("🔥 DONE: buyer_searches", bs.data?.length || 0);
+
+      console.log("🔥 FETCHING: visits");
+      const v = await supabase.from('visits').select('*');
+      console.log("🔥 DONE: visits", v.data?.length || 0);
+
+      console.log("🔥 FETCHING: property_marketing_logs");
+      const m = await supabase.from('property_marketing_logs').select('*').order('date', { ascending: false });
+      console.log("🔥 DONE: property_marketing_logs", m.data?.length || 0);
+
+      console.log("🔥 FETCHING: activities");
+      const act = await supabase.from('activities').select('*');
+      console.log("🔥 DONE: activities", act.data?.length || 0);
+
+      console.log("🔥 FETCHING: user_settings");
+      const settings = await supabase.from('user_settings').select('*').eq('user_id', uid).maybeSingle();
+      console.log("🔥 DONE: user_settings");
+
+      console.log("🔥 FETCHING: closing_logs");
+      const closings = await supabase.from('closing_logs').select('*');
+      console.log("🔥 DONE: closing_logs", closings.data?.length || 0);
 
       if (settings.data) {
         setFinancialGoals(prev => ({
