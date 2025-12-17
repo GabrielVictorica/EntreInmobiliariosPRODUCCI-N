@@ -561,26 +561,14 @@ export default function App() {
 
   // --- Auth & Session Management ---
   const checkUserRole = async (userId: string, currentSession?: any) => {
-    console.log("🔥 ROLE CHECK - BYPASSING DB, using email check");
-    try {
-      // BYPASS DATABASE - Check role by email directly
-      const userEmail = currentSession?.user?.email || session?.user?.email;
-      const isMom = userEmail === 'gabriel.v.g06@gmail.com';
-      console.log("🔥 ROLE RESULT (email-based):", isMom, userEmail);
-      setIsMother(isMom);
-
-      if (isMom) {
-        // For mother, we still need team users - but wrap in timeout to prevent hang
-        const { data: team } = await supabase.from('user_roles').select('*');
-        if (team) setTeamUsers(team);
-      } else {
-        setTeamUsers([]);
-      }
-      return isMom;
-    } catch (e) {
-      console.error('Error checking role:', e);
-      return false;
-    }
+    console.log("🔥 ROLE CHECK - PURE EMAIL CHECK (NO DB)");
+    // COMPLETELY BYPASS DATABASE - Check role by email only
+    const userEmail = currentSession?.user?.email || session?.user?.email;
+    const isMom = userEmail === 'gabriel.v.g06@gmail.com';
+    console.log("🔥 ROLE RESULT:", isMom, userEmail);
+    setIsMother(isMom);
+    setTeamUsers([]); // Skip team users fetch entirely
+    return isMom;
   };
 
   const isMasterUser = session?.user?.email === 'gabriel.v.g06@gmail.com';
