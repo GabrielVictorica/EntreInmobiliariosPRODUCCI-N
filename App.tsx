@@ -649,7 +649,7 @@ export default function App() {
 
     try {
       // Parallel loading for maximum speed
-      const [c, p, bc, bs, v, m, act, settings, closings] = await Promise.all([
+      const results = await Promise.all([
         supabase.from('seller_clients').select('*'),
         supabase.from('properties').select('*'),
         supabase.from('buyer_clients').select('*'),
@@ -660,6 +660,16 @@ export default function App() {
         supabase.from('user_settings').select('*').eq('user_id', uid).maybeSingle(),
         supabase.from('closing_logs').select('*')
       ]);
+
+      const [c, p, bc, bs, v, m, act, settings, closings] = results;
+
+      // CRITICAL: Check for errors that don't throw
+      const errors = results.filter(r => r.error).map(r => r.error);
+      if (errors.length > 0) {
+        console.error("Supabase Query Errors:", errors);
+        alert(`Error conectando con la base de datos (Posible bloqueo del navegador):\n${errors[0]?.message}`);
+        throw new Error("Query failed"); // Force catch
+      }
 
       if (settings.data) {
         setFinancialGoals(prev => ({
