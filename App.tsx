@@ -647,11 +647,6 @@ export default function App() {
     // Only show full screen loader on the very first load
     if (!hasLoadedOnce.current) setLoading(true);
 
-    // TIMEOUT / SLOWNESS WARNING
-    // Instead of killing the request, we just warn the user if it's taking too long.
-    const slowTimer = setTimeout(() => {
-      alert("La conexión está muy lenta. Por favor espera, los datos cargarán pronto...");
-    }, 10000);
 
     // Standard Parallel loading (No killing)
     const results = await Promise.all([
@@ -665,8 +660,6 @@ export default function App() {
       supabase.from('user_settings').select('*').eq('user_id', uid).maybeSingle(),
       supabase.from('closing_logs').select('*')
     ]);
-
-    clearTimeout(slowTimer); // Clear warning if done
 
     const [c, p, bc, bs, v, m, act, settings, closings] = results;
 
@@ -728,13 +721,7 @@ export default function App() {
 
   } catch (error: any) {
     console.error("Error loading data from Supabase:", error);
-
-    if (error.message === "TIMEOUT_BRAVE_BLOCK") {
-      console.warn("Slow connection detected (Brave blocking?)");
-      alert("La conexión está tardando más de lo normal. Si usas Brave y los datos no aparecen, intenta desactivar los 'Shields' para este sitio.");
-    } else {
-      alert("Error cargando datos: " + (error.message || JSON.stringify(error)));
-    }
+    alert("Error cargando datos: " + (error.message || JSON.stringify(error)));
   } finally {
   }
 };
