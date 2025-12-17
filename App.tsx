@@ -560,11 +560,11 @@ export default function App() {
   }, [session]);
 
   // --- Auth & Session Management ---
-  const checkUserRole = async (userId: string) => {
+  const checkUserRole = async (userId: string, currentSession?: any) => {
     console.log("🔥 ROLE CHECK - BYPASSING DB, using email check");
     try {
       // BYPASS DATABASE - Check role by email directly
-      const userEmail = session?.user?.email;
+      const userEmail = currentSession?.user?.email || session?.user?.email;
       const isMom = userEmail === 'gabriel.v.g06@gmail.com';
       console.log("🔥 ROLE RESULT (email-based):", isMom, userEmail);
       setIsMother(isMom);
@@ -756,9 +756,9 @@ export default function App() {
     }
 
     try {
-      // 1. Check Role FIRST
+      // 1. Check Role FIRST - pass full session for email access
       console.log("🔥 CHECKING ROLE...");
-      const isMom = await checkUserRole(currentSession.user.id);
+      const isMom = await checkUserRole(currentSession.user.id, currentSession);
       console.log("🔥 ROLE RESULT:", isMom);
 
       // 2. Load Data (passing explicit overrides to avoid stale state)
