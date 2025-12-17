@@ -681,8 +681,14 @@ export default function App() {
       const teamUserFilter = isMom && teamUser;
 
       if (closings.data) {
+        console.log(">>> LOADING CLOSINGS - Raw data:", closings.data);
         const mapped = closings.data.filter(x => !!x).map(mapClosingFromDB);
+        console.log(">>> LOADING CLOSINGS - Mapped data:", mapped);
         setClosingLogs(mapped);
+      } else if (closings.error) {
+        console.error(">>> CLOSINGS LOAD ERROR:", closings.error);
+      } else {
+        console.log(">>> CLOSINGS - No data returned");
       }
       if (v.data) {
         const mapped = v.data.filter(x => !!x).map(mapVisitFromDB);
