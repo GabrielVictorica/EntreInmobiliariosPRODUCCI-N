@@ -1452,7 +1452,7 @@ export default function App() {
           <p>UID: <span className="font-bold">{session?.user?.id?.slice(0, 8) || 'NONE'}</span></p>
           <p>Email: {session?.user?.email || 'NONE'}</p>
           <p>Closings: <span className={closingLogs.length === 0 ? "text-red-400 font-bold" : "text-green-400 font-bold"}>{closingLogs.length}</span></p>
-          <p>Clients: <span className={sellerClients.length === 0 ? "text-red-400" : "text-green-400"}>{sellerClients.length}</span></p>
+          <p>Clients: <span className={clients.length === 0 ? "text-red-400" : "text-green-400"}>{clients.length}</span></p>
           <p>Auth Check: {isAuthChecking ? 'YES' : 'NO'}</p>
           <div className="mt-1 pt-1 border-t border-white/20 text-[10px] text-gray-400">
             {import.meta.env.VITE_SUPABASE_URL ? 'URL: OK' : 'URL: MISSING'}
