@@ -1049,14 +1049,16 @@ export default function App() {
         console.log(">>> Supabase client exists:", !!supabase);
 
         try {
-          const result = await supabase.from('closing_logs').insert(dbPayload).select().single();
-          console.log(">>> SUPABASE CALL COMPLETED");
-          console.log("SUPABASE RESPONSE:", JSON.stringify(result, null, 2));
-          const { data, error } = result;
-          if (error) {
-            console.error("SUPABASE ERROR:", error);
-            throw error;
+          // Step 1: Just do the INSERT (no chaining)
+          console.log(">>> Attempting INSERT...");
+          const { error: insertError } = await supabase.from('closing_logs').insert(dbPayload);
+          console.log(">>> INSERT call returned");
+
+          if (insertError) {
+            console.error(">>> INSERT ERROR:", insertError);
+            throw insertError;
           }
+
           console.log(">>> INSERT SUCCESS!");
         } catch (insertError: any) {
           console.error(">>> INSERT FAILED WITH EXCEPTION:", insertError);
