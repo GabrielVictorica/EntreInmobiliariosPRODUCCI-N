@@ -823,12 +823,20 @@ export default function App() {
 
 
   // --- Handle Logout ---
+  // --- Handle Logout ---
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setSession(null);
-    setClients([]);
-    setProperties([]);
-    // Clear all state...
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.error("Error signing out:", error);
+    } finally {
+      setSession(null);
+      setClients([]);
+      setProperties([]);
+      setActivities([]);
+      setClosingLogs([]);
+      window.location.reload(); // FORCE RELOAD to clear all memory/cache
+    }
   };
 
   // --- Handle Seed Data ---
