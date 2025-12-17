@@ -593,7 +593,7 @@ export default function App() {
 
   // --- TRAKING METRICS ---
   useEffect(() => {
-    console.log("🔥 APP VERSION: DEBUG_V3_CHECK_ENV");
+    console.log("🔥 APP VERSION: DEBUG_V4_TRACING");
     console.log("🔥 SUPABASE URL:", import.meta.env.VITE_SUPABASE_URL);
   }, []);
 
@@ -769,6 +769,7 @@ export default function App() {
   };
 
   useEffect(() => {
+    console.log("🔥 AUTH EFFECT START");
     // 1. Initial Session Check (Critical for Reloads)
     supabase.auth.getSession().then(({ data: { session } }) => {
       console.log("🔥 GET SESSION RESULT:", session ? "User Found" : "No Session");
