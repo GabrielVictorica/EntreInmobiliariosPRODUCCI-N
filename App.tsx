@@ -1049,14 +1049,29 @@ export default function App() {
         console.log(">>> Supabase client exists:", !!supabase);
 
         try {
-          // Step 1: Just do the INSERT (no chaining)
-          console.log(">>> Attempting INSERT...");
-          const { error: insertError } = await supabase.from('closing_logs').insert(dbPayload);
-          console.log(">>> INSERT call returned");
+          // Use native fetch instead of Supabase client to debug
+          console.log(">>> Attempting INSERT via native fetch...");
 
-          if (insertError) {
-            console.error(">>> INSERT ERROR:", insertError);
-            throw insertError;
+          const SUPABASE_URL = 'https://whfoflccshoztjlesnhh.supabase.co';
+          const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoZm9mbGNjc2hvenRqbGVzbmhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MzUwMzEsImV4cCI6MjA4MTMxMTAzMX0.rPQdO1qCovC9WP3ttlDOArvTI7I15lg7fnOPkJseDos';
+
+          const response = await fetch(`${SUPABASE_URL}/rest/v1/closing_logs`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${session?.access_token || SUPABASE_KEY}`,
+              'Prefer': 'return=representation'
+            },
+            body: JSON.stringify(dbPayload)
+          });
+
+          console.log(">>> Fetch completed with status:", response.status);
+          const responseText = await response.text();
+          console.log(">>> Response body:", responseText);
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${responseText}`);
           }
 
           console.log(">>> INSERT SUCCESS!");
