@@ -284,6 +284,10 @@ export interface VisitRecord {
   meetingPoint: 'propiedad' | 'oficina' | 'otro';
   securityCheck: boolean; // Occupant notified?
 
+  // New Manual Fields
+  manualPropertyAddress?: string;
+  comments?: string;
+
   // Execution
   status: VisitStatus;
   signedConfirmation: boolean; // Hoja de visita firmada
@@ -348,3 +352,29 @@ export interface ClosingRecord {
   referralSidesApplied?: 1 | 2; // NEW: How many sides the referral % applies to (default: same as 'sides')
 }
 
+
+export interface KPIDashboardRow {
+  user_id: string;
+  anio: number;
+  // Financials
+  facturacion_total: number;
+  transacciones_cerradas: number; // Puntas
+  transacciones_operaciones: number; // NEW: Operaciones para el promedio
+  volumen_total: number;
+  ticket_promedio: number; // Por Operación
+  honorarios_reales: number;
+  // Activities
+  total_pl: number;
+  total_pb: number;
+  total_captaciones: number;
+  total_reuniones_verdes: number;
+  total_gestion: number; // Calculated in view
+  // Ratios
+  efectividad_cierre: number;
+  efectividad_captacion: number;
+  honorarios_promedio: number; // NEW: NCI promedio por punta
+  productividad_actividad: number; // NEW: Honorarios / Total Actividades
+  // Objectives
+  annual_billing: number;
+  monthly_need: number;
+}

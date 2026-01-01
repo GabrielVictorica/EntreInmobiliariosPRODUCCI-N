@@ -56,6 +56,7 @@ interface VisitFormProps {
 const VisitForm: React.FC<VisitFormProps> = ({ properties, buyers, buyerSearches, onSave, onCancel, initialData }) => {
     // Section 1: Planning
     const [propertyId, setPropertyId] = useState('');
+    const [manualPropertyAddress, setManualPropertyAddress] = useState(''); // New Manual State
     const [buyerId, setBuyerId] = useState('');
     const [agentName, setAgentName] = useState('');
     const [source, setSource] = useState<LeadSource>('marketplace'); // UPDATED DEFAULT
@@ -64,6 +65,9 @@ const VisitForm: React.FC<VisitFormProps> = ({ properties, buyers, buyerSearches
     const [duration, setDuration] = useState<VisitDuration>('30');
     const [meetingPoint, setMeetingPoint] = useState<'propiedad' | 'oficina' | 'otro'>('propiedad');
     const [securityCheck, setSecurityCheck] = useState(false);
+
+    // New Comment State
+    const [comments, setComments] = useState('');
 
     // Section 3: Status
     const [status, setStatus] = useState<VisitStatus>('pendiente');
@@ -93,6 +97,7 @@ const VisitForm: React.FC<VisitFormProps> = ({ properties, buyers, buyerSearches
     useEffect(() => {
         if (initialData) {
             setPropertyId(initialData.propertyId);
+            setManualPropertyAddress(initialData.manualPropertyAddress || ''); // Load Manual
             setBuyerId(initialData.buyerClientId);
             setAgentName(initialData.agentName);
             setSource(initialData.source || 'otro');
@@ -101,6 +106,7 @@ const VisitForm: React.FC<VisitFormProps> = ({ properties, buyers, buyerSearches
             setDuration(initialData.duration);
             setMeetingPoint(initialData.meetingPoint);
             setSecurityCheck(initialData.securityCheck);
+            setComments(initialData.comments || ''); // Load Comments
             setStatus(initialData.status);
             setSignedConfirmation(initialData.signedConfirmation);
             setSignedConfirmationFile(initialData.signedConfirmationFile || '');
@@ -151,14 +157,17 @@ const VisitForm: React.FC<VisitFormProps> = ({ properties, buyers, buyerSearches
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!propertyId || !buyerId || !date || !time) {
-            alert("Completa los datos obligatorios de planificación.");
+        e.preventDefault();
+        // Validation: Property ID OR Manual Address required
+        if ((!propertyId && !manualPropertyAddress) || !buyerId || !date || !time) {
+            alert("Completa los datos obligatorios (Propiedad, Comprador, Fecha, Hora).");
             return;
         }
 
         const record: VisitRecord = {
             id: initialData ? initialData.id : crypto.randomUUID(),
-            propertyId,
+            propertyId: propertyId || 'manual', // Use 'manual' flag if empty
+            manualPropertyAddress: propertyId ? undefined : manualPropertyAddress, // Save Manual Address
             buyerClientId: buyerId,
             agentName,
             source, // Save Source
@@ -167,6 +176,7 @@ const VisitForm: React.FC<VisitFormProps> = ({ properties, buyers, buyerSearches
             duration,
             meetingPoint,
             securityCheck,
+            comments, // Save Comments
             status,
             signedConfirmation,
             signedConfirmationFile: signedConfirmation ? signedConfirmationFile : undefined,
@@ -208,10 +218,36 @@ const VisitForm: React.FC<VisitFormProps> = ({ properties, buyers, buyerSearches
                         {/* Property Select */}
                         <div>
                             <label className="block text-[10px] font-bold text-[#AA895F] uppercase mb-1">Propiedad</label>
-                            <select value={propertyId} onChange={e => setPropertyId(e.target.value)} className="w-full bg-[#364649] text-white rounded-xl px-4 py-3 font-medium focus:ring-2 focus:ring-[#AA895F] outline-none shadow-lg">
+                            <select value={propertyId === 'manual' ? '' : propertyId} onChange={e => {
+                                const val = e.target.value;
+                                if (val === 'manual_option') {
+                                    setPropertyId('');
+                                    setManualPropertyAddress(''); // Reset manual input to allow typing
+                                } else {
+                                    setPropertyId(val);
+                                    setManualPropertyAddress('');
+                                }
+                            }} className="w-full bg-[#364649] text-white rounded-xl px-4 py-3 font-medium focus:ring-2 focus:ring-[#AA895F] outline-none shadow-lg">
                                 <option value="">-- Seleccionar Propiedad --</option>
                                 {properties.map(p => <option key={p.id} value={p.id}>{p.customId} - {p.address.street} ({p.type})</option>)}
+                                <option value="manual_option" className="font-bold text-[#AA895F]">+ Propiedad Externa / Manual</option>
                             </select>
+
+                            {/* Manual Property Input */}
+                            {!propertyId && (
+                                <div className="mt-3 animate-fade-in-up">
+                                    <label className="block text-[10px] font-bold text-[#364649]/60 uppercase mb-1">Dirección / Detalle Manual</label>
+                                    <input
+                                        type="text"
+                                        value={manualPropertyAddress}
+                                        onChange={e => setManualPropertyAddress(e.target.value)}
+                                        placeholder="Ej: Departamento Calle Falsa 123 (Inmobiliaria X)"
+                                        className="w-full bg-white border border-[#AA895F] rounded-lg px-3 py-2.5 text-sm text-[#364649] outline-none focus:ring-1 focus:ring-[#AA895F]"
+                                        autoFocus
+                                    />
+                                </div>
+                            )}
+
                             {selectedProperty && (
                                 <div className="mt-3 bg-white/50 p-3 rounded-xl border border-[#364649]/10 flex items-center space-x-3 animate-fade-in-up">
                                     <div className="w-12 h-12 bg-gray-200 rounded-lg bg-cover bg-center" style={{ backgroundImage: `url(${selectedProperty.files.photos[0] || ''})` }}></div>
@@ -300,10 +336,10 @@ const VisitForm: React.FC<VisitFormProps> = ({ properties, buyers, buyerSearches
                                 <button
                                     key={s} type="button" onClick={() => setStatus(s as VisitStatus)}
                                     className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${status === s
-                                            ? s === 'pendiente' ? 'bg-blue-100 text-blue-700 border-blue-200'
-                                                : s === 'realizada' ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
-                                                    : 'bg-red-100 text-red-700 border-red-200'
-                                            : 'bg-white border-[#364649]/10 text-[#364649]/40'
+                                        ? s === 'pendiente' ? 'bg-blue-100 text-blue-700 border-blue-200'
+                                            : s === 'realizada' ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                                                : 'bg-red-100 text-red-700 border-red-200'
+                                        : 'bg-white border-[#364649]/10 text-[#364649]/40'
                                         } border`}
                                 >
                                     {s.replace('_', ' ')}
@@ -544,6 +580,16 @@ const VisitForm: React.FC<VisitFormProps> = ({ properties, buyers, buyerSearches
                         </Section>
                     </div>
                 )}
+
+                {/* NEW: General Comments */}
+                <Section title="Comentarios Generales" icon={<FileText size={18} />}>
+                    <TextArea
+                        label="Notas / Comentarios"
+                        value={comments}
+                        onChange={setComments}
+                        placeholder="Cualquier detalle adicional importante sobre la visita..."
+                    />
+                </Section>
 
                 {/* Actions */}
                 <div className="fixed bottom-0 left-0 lg:left-20 right-0 p-4 bg-white/80 backdrop-blur-md border-t border-[#364649]/10 flex justify-end gap-4 z-50">

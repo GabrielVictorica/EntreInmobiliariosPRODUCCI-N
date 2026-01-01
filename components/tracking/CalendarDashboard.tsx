@@ -5,18 +5,34 @@ import { supabase } from '../../services/supabaseClient';
 import CreateEventModal from './CreateEventModal';
 
 interface CalendarDashboardProps {
+    session: any;
     activities: ActivityRecord[];
     visits: VisitRecord[];
+    googleEvents: any[];
+    onEventsChange: (events: any[]) => void;
+    isGoogleSynced: boolean;
+    onSyncChange: (synced: boolean) => void;
+    googleAccessToken: string | null;
+    onTokenChange: (token: string | null) => void;
+    isCheckingSync: boolean;
 }
 
-export default function CalendarDashboard({ activities, visits }: CalendarDashboardProps) {
+export default function CalendarDashboard({
+    session: propSession,
+    activities,
+    visits,
+    googleEvents,
+    onEventsChange,
+    isGoogleSynced: isSynced, // Rename prop to keep internal usage
+    onSyncChange: setIsSynced,
+    googleAccessToken,
+    onTokenChange: setGoogleAccessToken,
+    isCheckingSync
+}: CalendarDashboardProps) {
     const [currentDate, setCurrentDate] = useState(new Date());
-    const [isSynced, setIsSynced] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [session, setSession] = useState<any>(null);
-    const [googleEvents, setGoogleEvents] = useState<any[]>([]);
-    const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
+    const [session, setSession] = useState<any>(propSession);
     const [modalInitialDate, setModalInitialDate] = useState<Date | null>(null);
     const [editingEvent, setEditingEvent] = useState<any | null>(null);
 
@@ -122,45 +138,32 @@ export default function CalendarDashboard({ activities, visits }: CalendarDashbo
     }, [isResizing, hourHeight]);
 
     // ... (DB Loading, Sync, APIs - Same as before)
-    const loadSavedGoogleToken = async (userId: string) => {
-        try {
-            const { data } = await supabase
-                .from('user_integrations')
-                .select('access_token, refresh_token')
-                .eq('user_id', userId)
-                .eq('provider', 'google_calendar')
-                .single();
 
+    const refreshGoogleToken = async () => {
+        try {
+            const { data, error } = await supabase.functions.invoke('refresh-google-token');
+            if (error) throw error;
             if (data?.access_token) {
                 setGoogleAccessToken(data.access_token);
                 setIsSynced(true);
+                return data.access_token;
             }
-        } catch (error) { console.error(error); }
+        } catch (error) {
+            console.error('Error refreshing Google token:', error);
+            setIsSynced(false);
+            return null;
+        }
     };
 
     useEffect(() => {
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
-            if (session?.provider_token) {
-                setGoogleAccessToken(session.provider_token);
-                setIsSynced(true);
-                if (session.user) saveGoogleToken(session.user.id, session.provider_token, session.provider_refresh_token);
-            } else if (session?.user) {
-                loadSavedGoogleToken(session.user.id);
-            }
-        });
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setSession(session);
-            if (session?.provider_token) {
-                setGoogleAccessToken(session.provider_token);
-                setIsSynced(true);
-                if (session.user) saveGoogleToken(session.user.id, session.provider_token, session.provider_refresh_token);
-            } else if (session?.user) {
-                loadSavedGoogleToken(session.user.id);
-            }
-        });
-        return () => subscription.unsubscribe();
-    }, []);
+        setSession(propSession);
+        if (propSession?.provider_token) {
+            console.log(">>> [Calendar] Provider token found in session");
+            setGoogleAccessToken(propSession.provider_token);
+            setIsSynced(true);
+            saveGoogleToken(propSession.user.id, propSession.provider_token, propSession.provider_refresh_token);
+        }
+    }, [propSession]);
 
     const saveGoogleToken = async (userId: string, accessToken: string, refreshToken?: string) => {
         try {
@@ -170,8 +173,10 @@ export default function CalendarDashboard({ activities, visits }: CalendarDashbo
         } catch (error) { console.error(error); }
     };
 
-    const listGoogleEvents = async () => {
-        if (!googleAccessToken) return;
+    const listGoogleEvents = async (token?: string) => {
+        const currentToken = token || googleAccessToken;
+        if (!currentToken) return;
+
         const startOfWeek = new Date(currentDate);
         startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay() + 1);
         startOfWeek.setHours(0, 0, 0, 0);
@@ -180,14 +185,20 @@ export default function CalendarDashboard({ activities, visits }: CalendarDashbo
 
         try {
             const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${startOfWeek.toISOString()}&timeMax=${endOfWeek.toISOString()}&singleEvents=true&orderBy=startTime`, {
-                headers: { 'Authorization': `Bearer ${googleAccessToken}` }
+                headers: { 'Authorization': `Bearer ${currentToken}` }
             });
             if (!response.ok) {
-                if (response.status === 401) setIsSynced(false);
+                if (response.status === 401) {
+                    const newToken = await refreshGoogleToken();
+                    if (newToken) {
+                        return listGoogleEvents(newToken);
+                    }
+                    setIsSynced(false);
+                }
                 throw new Error('Failed to fetch events');
             }
             const data = await response.json();
-            setGoogleEvents(data.items || []);
+            onEventsChange(data.items || []);
         } catch (error) { console.error(error); }
     };
 
@@ -197,7 +208,7 @@ export default function CalendarDashboard({ activities, visits }: CalendarDashbo
                 if (e.id === eventId) return { ...e, end: { ...e.end, dateTime: newEnd.toISOString() } };
                 return e;
             });
-            setGoogleEvents(updatedEvents);
+            onEventsChange(updatedEvents);
             await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
                 method: 'PATCH',
                 headers: { 'Authorization': `Bearer ${googleAccessToken}`, 'Content-Type': 'application/json' },
@@ -295,7 +306,11 @@ export default function CalendarDashboard({ activities, visits }: CalendarDashbo
         try {
             await supabase.auth.signInWithOAuth({
                 provider: 'google',
-                options: { queryParams: { access_type: 'offline', prompt: 'consent' }, scopes: 'https://www.googleapis.com/auth/calendar', redirectTo: window.location.origin },
+                options: {
+                    queryParams: { access_type: 'offline', prompt: 'consent' },
+                    scopes: 'https://www.googleapis.com/auth/calendar',
+                    redirectTo: window.location.origin + '?tab=calendar'
+                },
             });
         } catch (error: any) { alert(`Error: ${error.message}`); } finally { setIsSyncing(false); }
     };
@@ -335,6 +350,9 @@ export default function CalendarDashboard({ activities, visits }: CalendarDashbo
         };
     };
 
+    // We no longer block the whole screen with a loader. 
+    // We just let the UI render and the "Conectar Google" button will show current status.
+
     return (
         <div className="space-y-6 pb-20 animate-fade-in-up">
             <CreateEventModal
@@ -353,7 +371,7 @@ export default function CalendarDashboard({ activities, visits }: CalendarDashbo
                 <div className="flex gap-3">
                     <button onClick={handleSyncGoogleCalendar} disabled={isSynced || isSyncing} className={`px-4 py-2 rounded-xl font-bold transition-all flex items-center gap-2 ${isSynced ? 'bg-green-100 text-green-700' : 'bg-white text-[#364649]'}`}>
                         <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Google_Calendar_icon_%282020%29.svg" alt="Google" className="w-5 h-5" />
-                        <span className="hidden md:inline">{isSynced ? 'Sincronizado' : 'Conectar Google'}</span>
+                        <span className="hidden md:inline">{isSyncing || isCheckingSync ? 'Cargando...' : (isSynced ? 'Sincronizado' : 'Conectar Google')}</span>
                     </button>
                     <button onClick={() => { setModalInitialDate(null); setIsModalOpen(true); }} className="bg-[#AA895F] text-white px-4 py-2 rounded-xl font-bold shadow-lg flex items-center gap-2">
                         <Plus size={18} /> <span className="hidden md:inline">Evento</span>

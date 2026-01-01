@@ -1,5 +1,6 @@
-
-import React, { useMemo } from 'react';
+import React from 'react';
+import { format, parseISO, isValid } from 'date-fns';
+import { es } from 'date-fns/locale';
 import {
     DollarSign,
     Users,
@@ -7,37 +8,64 @@ import {
     Activity,
     TrendingUp,
     Calendar,
-    AlertCircle,
     CheckCircle2,
     Clock,
     LayoutGrid,
-    ArrowRight
+    ArrowRight,
+    Target,
+    Building2
 } from 'lucide-react';
-import { PropertyRecord, VisitRecord, ActivityRecord } from '../../types';
+import { VisitRecord, ActivityRecord } from '../../types';
+import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 
 interface BusinessControlProps {
     currentBilling: number;
     annualBillingTarget: number;
     averageTicket: number;
-    pipelineValue: number; // New Prop
+    pipelineValue: number;
     metrics: {
         transactionsNeeded: number;
-        transactionsDone: number; // calculated from closings
+        transactionsDone: number;
         greenMeetingsTarget: number;
         greenMeetingsDone: number;
-        pocketFees: number; // Net Income
-        pocketFeesTarget: number; // Lifestyle Cost
+        pocketFees: number;
+        pocketFeesTarget: number;
         criticalNumberTarget: number;
-        criticalNumberDone: number; // Weekly Activity
+        criticalNumberDone: number;
         activeProperties: number;
+        honorariosPromedio: number;
+        productividadActividad: number;
+        isDataReliable: boolean;
     };
-    todayAlerts: {
-        visits: VisitRecord[];
-        activities: ActivityRecord[];
+    captationGoals: {
+        goalQty: number;
+        startDate: string; // ISO date
+        endDate: string;   // ISO date
+        weeksDuration: number;
+        weeklyPLTarget: number;
+        weeklyPLDone: number;
     };
     onNavigateToWeek: () => void;
     onNavigateToCalendar: () => void;
+    closingRate: string;
+    closingRatioDisplay: string;
+    isStandardRate?: boolean;
+    // Year Props
+    availableYears: number[];
+    currentYear: number;
+    onSelectYear: (year: number) => void;
+    isHistoricalView: boolean;
+    onToggleHistorical: (isHistorical: boolean) => void;
 }
+
+const COLORS = {
+    gold: '#AA895F',
+    dark: '#364649',
+    emerald: '#10b981',
+    blue: '#3b82f6',
+    purple: '#8b5cf6',
+    amber: '#f59e0b'
+};
 
 export default function BusinessControl({
     currentBilling,
@@ -45,187 +73,375 @@ export default function BusinessControl({
     averageTicket,
     pipelineValue,
     metrics,
-    todayAlerts,
+    captationGoals,
     onNavigateToWeek,
-    onNavigateToCalendar
+    onNavigateToCalendar,
+    closingRate,
+    closingRatioDisplay,
+    isStandardRate = false,
+    availableYears,
+    currentYear,
+    onSelectYear,
+    isHistoricalView,
+    onToggleHistorical
 }: BusinessControlProps) {
 
-    // Helpers
     const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val);
     const formatNumber = (val: number) => new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 }).format(val);
 
+    const billingProgress = (currentBilling / annualBillingTarget) * 100;
+    const transactionsProgress = (metrics.transactionsDone / metrics.transactionsNeeded) * 100;
+
     return (
-        <div className="space-y-8 animate-fade-in-up">
+        <div className="space-y-6">
 
-            {/* 1. TODAY'S ALERTS (High Priority) */}
+            {/* Year Selector Header */}
+            <div className="flex items-center justify-between mb-4 bg-white p-2 rounded-xl shadow-sm border border-gray-100">
+                <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-gray-400 ml-2 uppercase tracking-wide">Vista:</span>
+                    <button
+                        onClick={() => onToggleHistorical(true)}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${isHistoricalView
+                            ? 'bg-[#364649] text-white shadow-md'
+                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                    >
+                        HISTÓRICO
+                    </button>
+                    <div className="h-4 w-px bg-gray-300 mx-1"></div>
+                    {availableYears.map(year => (
+                        <button
+                            key={year}
+                            onClick={() => {
+                                onToggleHistorical(false);
+                                onSelectYear(year);
+                            }}
+                            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${!isHistoricalView && currentYear === year
+                                ? 'bg-[#AA895F] text-white shadow-md'
+                                : 'text-gray-500 hover:bg-gray-100'}`}
+                        >
+                            {year}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {/* ROW 1: Main Financial KPIs with Donut Charts */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-gradient-to-br from-[#364649] to-[#2C3A3D] rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -mr-10 -mt-10"></div>
 
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-white/60 mb-4 flex items-center">
-                        <Clock size={16} className="mr-2 text-[#AA895F]" /> Tu Agenda de Hoy
-                    </h3>
-                    <div onClick={onNavigateToCalendar} className="absolute top-4 right-4 text-[10px] uppercase font-bold text-[#AA895F] bg-white/10 px-2 py-1 rounded cursor-pointer hover:bg-white/20 transition-colors flex items-center gap-1">
-                        <Calendar size={12} /> Ver Calendario
+                {/* Billing Progress */}
+                <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-lg">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-1">
+                                Facturación {isHistoricalView ? 'Histórica' : currentYear}
+                            </p>
+                            <p className="text-3xl font-black text-gray-800">{formatCurrency(currentBilling)}</p>
+                            <p className="text-sm text-gray-400 mt-1">Meta: {formatCurrency(annualBillingTarget)}</p>
+                        </div>
+                        <DonutProgress value={billingProgress} color={COLORS.gold} />
                     </div>
-
-                    <div className="space-y-4">
-                        {todayAlerts.visits.length === 0 && todayAlerts.activities.length === 0 ? (
-                            <div className="text-center py-6 text-white/40">
-                                <p className="text-sm">Sin actividades programadas para hoy.</p>
-                            </div>
-                        ) : (
-                            <>
-                                {todayAlerts.visits.map(v => (
-                                    <div key={v.id} className="bg-white/10 p-3 rounded-xl flex items-start gap-3 border border-white/5">
-                                        <div className="bg-[#AA895F]/20 p-2 rounded-lg text-[#AA895F]"><Users size={16} /></div>
-                                        <div>
-                                            <p className="font-bold text-sm">Visita: {v.propertyId}</p>
-                                            <p className="text-xs text-white/60">{v.time} hs - {v.buyerClientId}</p>
-                                        </div>
-                                    </div>
-                                ))}
-                                {todayAlerts.activities.map(a => (
-                                    <div key={a.id} className="bg-white/10 p-3 rounded-xl flex items-start gap-3 border border-white/5">
-                                        <div className="bg-emerald-500/20 p-2 rounded-lg text-emerald-400"><Activity size={16} /></div>
-                                        <div>
-                                            <p className="font-bold text-sm">{a.type === 'reunion_verde' ? 'Reunión Verde' : a.type}</p>
-                                            <p className="text-xs text-white/60">{a.contactName}</p>
-                                        </div>
-                                    </div>
-                                ))}
-                            </>
-                        )}
+                    <div className="mt-4 pt-4 border-t border-gray-100 grid grid-cols-2 gap-4">
+                        <div>
+                            <p className="text-[10px] font-bold uppercase text-gray-400">Ingresos Netos</p>
+                            <p className="text-lg font-bold text-emerald-600">{formatCurrency(metrics.pocketFees)}</p>
+                            <p className="text-[10px] text-gray-400">Meta: {formatCurrency(metrics.pocketFeesTarget)}</p>
+                        </div>
+                        <div>
+                            <p className="text-[10px] font-bold uppercase text-gray-400">Ticket Promedio</p>
+                            <p className="text-lg font-bold text-gray-700">{formatCurrency(averageTicket)}</p>
+                            <p className="text-[9px] text-gray-400 font-medium">{isHistoricalView ? '(Histórico)' : `(Año ${currentYear})`}</p>
+                        </div>
                     </div>
                 </div>
 
-                <div className="bg-white border border-[#364649]/10 rounded-3xl p-6 shadow-sm flex flex-col justify-between">
-                    <div>
-                        <h3 className="text-sm font-bold uppercase tracking-wider text-[#364649]/60 mb-2">Cartera Activa</h3>
-                        <div className="flex items-center gap-4">
-                            <span className="text-5xl font-black text-[#364649]">{metrics.activeProperties}</span>
-                            <div className="bg-gray-100 p-2 rounded-xl text-[#364649]"><LayoutGrid size={24} /></div>
+                {/* Two-column layout: Transactions + Pipeline Projection */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Transactions Progress - Left Side */}
+                    <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-lg">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-1">
+                                    Transacciones {isHistoricalView ? 'Totales' : currentYear}
+                                </p>
+                                <p className="text-3xl font-black text-gray-800">{metrics.transactionsDone}</p>
+                                <p className="text-sm text-gray-400 mt-1">Meta: {metrics.transactionsNeeded.toFixed(1)} puntas</p>
+                            </div>
+                            <DonutProgress value={transactionsProgress} color={COLORS.blue} />
                         </div>
-                        <p className="text-xs text-[#364649]/40 mt-2">Propiedades en stock</p>
+                        <div className="mt-4 pt-4 border-t border-gray-100">
+                            <div>
+                                <p className="text-[10px] font-bold uppercase text-gray-400">Cartera Activa</p>
+                                <p className="text-lg font-bold text-gray-700">{metrics.activeProperties} props.</p>
+                            </div>
+                        </div>
                     </div>
-                    <div className="mt-4 pt-4 border-t border-gray-100">
-                        <div className="flex justify-between items-center text-sm">
-                            <span className="text-[#364649]/70">Valor Pipeline (Est.)</span>
-                            <span className="font-bold text-[#AA895F]">{formatCurrency(pipelineValue)}</span>
+
+                    {/* Facturación Proyectada - Right Side */}
+                    <div className="bg-gradient-to-br from-[#364649] to-[#242f31] rounded-3xl p-6 shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
+                        <div className="absolute -right-6 -bottom-6 opacity-5">
+                            <Building2 size={120} />
+                        </div>
+                        <div className="relative z-10">
+                            <p className="text-[10px] font-black uppercase text-[#AA895F] mb-1 tracking-[0.2em]">
+                                Facturación Proyectada
+                            </p>
+                            <p className="text-[9px] font-medium text-white/40 uppercase tracking-wider mb-3">
+                                Pipeline Probable
+                            </p>
+                            <h3 className="text-4xl font-black">
+                                USD {Math.round(pipelineValue).toLocaleString()}
+                            </h3>
+                        </div>
+                        <div className="relative z-10 mt-4 grid grid-cols-2 gap-3">
+                            <div className="bg-white/10 backdrop-blur-sm rounded-xl px-3 py-2 border border-white/5">
+                                <p className="text-[9px] text-[#AA895F] font-bold uppercase tracking-wide">Inventario</p>
+                                <p className="text-sm font-black text-white">40%</p>
+                                <p className="text-[8px] text-white/40 uppercase">Prob. Media</p>
+                            </div>
+                            <div className="bg-white/10 backdrop-blur-sm rounded-xl px-3 py-2 border border-white/5">
+                                <p className="text-[9px] text-[#AA895F] font-bold uppercase tracking-wide">Compradores</p>
+                                <p className="text-sm font-black text-white">10%</p>
+                                <p className="text-[8px] text-white/40 uppercase">Prob. Temprana</p>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* 2. MAIN METRICS GRID */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* ROW 2: Weekly Activity Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
-                {/* BILLING */}
-                <KpiCard
-                    label="Facturación Bruta"
-                    value={formatCurrency(currentBilling)}
-                    target={formatCurrency(annualBillingTarget)}
-                    icon={<DollarSign size={20} />}
-                    color="text-[#AA895F]"
-                    bg="bg-[#AA895F]"
-                    progress={(currentBilling / annualBillingTarget) * 100}
-                />
-
-                {/* POCKET FEES */}
-                <KpiCard
-                    label="Honorarios de Bolsillo"
-                    value={formatCurrency(metrics.pocketFees)}
-                    target={formatCurrency(metrics.pocketFeesTarget)}
-                    icon={<Briefcase size={20} />}
-                    color="text-emerald-600"
-                    bg="bg-emerald-500"
-                    progress={(metrics.pocketFees / metrics.pocketFeesTarget) * 100}
-                />
-
-                {/* TRANSACTIONS */}
-                <KpiCard
-                    label="Transacciones (Puntas)"
-                    value={metrics.transactionsDone.toString()}
-                    target={metrics.transactionsNeeded.toFixed(1)}
-                    icon={<CheckCircle2 size={20} />}
-                    color="text-blue-600"
-                    bg="bg-blue-500"
-                    progress={(metrics.transactionsDone / metrics.transactionsNeeded) * 100}
-                />
-
-                {/* WEEKLY ACTIVITY (CRITICAL NUMBER) */}
-                <KpiCard
-                    label="Gestión Semanal (PL/PB)"
-                    value={formatNumber(metrics.criticalNumberDone)}
-                    target={formatNumber(metrics.criticalNumberTarget)}
-                    icon={<Activity size={20} />}
-                    color="text-purple-600"
-                    bg="bg-purple-500"
-                    progress={(metrics.criticalNumberDone / metrics.criticalNumberTarget) * 100}
-                />
-
-                {/* AVERAGE TICKET */}
-                <div className="bg-white border border-[#364649]/10 rounded-3xl p-6 shadow-sm relative overflow-hidden">
-                    <div className="flex justify-between items-start mb-4">
-                        <h3 className="text-xs font-bold uppercase text-[#364649]/50">Ticket Promedio</h3>
-                        <div className="bg-gray-100 p-2 rounded-lg text-[#364649]"><TrendingUp size={20} /></div>
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                        <span className="text-3xl font-black text-[#364649]">{formatCurrency(averageTicket)}</span>
-                    </div>
-                    <p className="text-xs text-[#364649]/40 mt-2">Basado en histórico</p>
-                </div>
-
-                {/* GREEN MEETINGS (ACTIONABLE) */}
+                {/* Weekly Activity Goal - Enhanced with Closing Rate */}
                 <div
                     onClick={onNavigateToWeek}
-                    className="bg-emerald-50 border border-emerald-200 rounded-3xl p-6 shadow-sm relative overflow-hidden cursor-pointer group hover:shadow-md transition-all"
+                    className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm cursor-pointer hover:shadow-lg transition-all group"
                 >
-                    <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <ArrowRight className="text-emerald-600" />
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                            <div className="p-2 rounded-lg text-white" style={{ backgroundColor: COLORS.purple }}><Activity size={18} /></div>
+                            <div>
+                                <p className="text-xs font-bold uppercase text-gray-500">Gestión Semanal</p>
+                                <p className="text-[10px] text-gray-400">PL/PB</p>
+                            </div>
+                        </div>
+                        <ArrowRight size={16} className="text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
-                    <div className="flex justify-between items-start mb-4">
-                        <h3 className="text-xs font-bold uppercase text-emerald-800">Reuniones Verdes</h3>
-                        <div className="bg-emerald-200 p-2 rounded-lg text-emerald-700"><Users size={20} /></div>
+                    <div className="flex items-end justify-between">
+                        <div>
+                            <span className="text-3xl font-black" style={{ color: COLORS.purple }}>{Math.round(metrics.criticalNumberDone)}</span>
+                            <span className="text-lg font-bold text-gray-300 ml-1">/ {Math.round(metrics.criticalNumberTarget)}</span>
+                        </div>
+                        <span className="text-xs font-bold text-gray-400">{Math.round(Math.min((metrics.criticalNumberDone / metrics.criticalNumberTarget) * 100, 100))}%</span>
                     </div>
-                    <div className="flex items-baseline gap-2">
-                        <span className="text-4xl font-black text-emerald-700">{metrics.greenMeetingsDone}</span>
-                        <span className="text-sm font-bold text-emerald-600/60">/ {metrics.greenMeetingsTarget}</span>
+                    <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden mt-3">
+                        <div
+                            className="h-full transition-all duration-500 rounded-full"
+                            style={{ width: `${Math.min((metrics.criticalNumberDone / metrics.criticalNumberTarget) * 100, 100)}%`, backgroundColor: COLORS.purple }}
+                        ></div>
                     </div>
-                    <p className="text-xs text-emerald-700/60 mt-2 font-medium flex items-center">
-                        Registrar nueva reunión <ArrowRight size={12} className="ml-1" />
-                    </p>
+                    {/* Tasa de Cierre Info */}
+                    <div className="mt-3 pt-3 border-t border-gray-100 flex justify-between items-center">
+                        <div>
+                            <p className="text-[10px] font-bold uppercase text-gray-400">Tasa de Cierre</p>
+                            <p className="text-sm font-bold text-emerald-600 flex items-center gap-1">
+                                {closingRate}%
+                                <span className="text-[8px] text-gray-400 font-normal">{isStandardRate ? '(estándar)' : isHistoricalView ? '(Hist)' : '(Año)'}</span>
+                            </p>
+                        </div>
+                        <div className="text-right">
+                            <p className="text-[10px] font-bold uppercase text-gray-400">Ratio</p>
+                            <p className="text-sm font-bold text-gray-600">{closingRatioDisplay}</p>
+                        </div>
+                    </div>
                 </div>
 
+                {/* Green Meetings */}
+                <ActivityCard
+                    title="Actividades Semana"
+                    subtitle="Semanales"
+                    done={metrics.greenMeetingsDone}
+                    target={metrics.greenMeetingsTarget}
+                    color={COLORS.emerald}
+                    icon={<Users size={18} />}
+                    onClick={onNavigateToWeek}
+                />
+
+                {/* Captation Goal */}
+                {(() => {
+                    // Format dates for display
+                    const formatDate = (isoDate: string) => {
+                        try {
+                            const date = parseISO(isoDate);
+                            if (!isValid(date)) return '';
+                            return format(date, 'dd MMM', { locale: es });
+                        } catch {
+                            return '';
+                        }
+                    };
+                    const startFormatted = formatDate(captationGoals.startDate);
+                    const endFormatted = formatDate(captationGoals.endDate);
+                    const periodLabel = startFormatted && endFormatted
+                        ? `${startFormatted} - ${endFormatted}`
+                        : 'Sin período definido';
+                    const weeksLabel = captationGoals.weeksDuration > 0
+                        ? `${captationGoals.weeksDuration} ${captationGoals.weeksDuration === 1 ? 'Semana' : 'Semanas'}`
+                        : '';
+                    const progressPercent = captationGoals.weeklyPLTarget > 0
+                        ? Math.min((captationGoals.weeklyPLDone / captationGoals.weeklyPLTarget) * 100, 100)
+                        : 0;
+
+                    return (
+                        <div
+                            onClick={onNavigateToWeek}
+                            className="bg-[#364649] border border-[#364649]/80 rounded-2xl p-5 cursor-pointer hover:shadow-xl hover:shadow-[#364649]/20 transition-all group"
+                        >
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                    <div className="bg-[#AA895F] p-2 rounded-lg text-white"><Target size={18} /></div>
+                                    <div>
+                                        <p className="text-xs font-bold uppercase text-white">Meta Captaciones</p>
+                                        <p className="text-[10px] text-white/60">{periodLabel}</p>
+                                    </div>
+                                </div>
+                                {weeksLabel && (
+                                    <span className="text-[9px] uppercase font-bold text-[#AA895F] bg-[#AA895F]/20 px-2 py-1 rounded-full">
+                                        {weeksLabel}
+                                    </span>
+                                )}
+                            </div>
+                            <div className="flex items-end justify-between">
+                                <div>
+                                    <p className="text-3xl font-black text-white">{captationGoals.goalQty}</p>
+                                    <p className="text-[10px] text-white/50 mt-1">captaciones objetivo</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-sm font-bold text-[#AA895F]">
+                                        {captationGoals.weeklyPLDone}/{Math.ceil(captationGoals.weeklyPLTarget)}
+                                    </p>
+                                    <p className="text-[10px] text-white/50">PLs esta semana</p>
+                                </div>
+                            </div>
+                            <div className="w-full bg-white/20 h-1.5 rounded-full overflow-hidden mt-3">
+                                <div
+                                    className="h-full bg-[#AA895F] transition-all duration-500 rounded-full"
+                                    style={{ width: `${progressPercent}%` }}
+                                ></div>
+                            </div>
+                        </div>
+                    );
+                })()}
             </div>
 
-            {/* 3. LATENT VALUE CARD (Moved from Objectives) */}
-            <div className="bg-[#1e293b] text-white rounded-3xl p-8 shadow-xl relative overflow-hidden">
-                <div className="flex items-center gap-3 mb-2">
-                    <div className="bg-white/10 p-2 rounded-lg text-blue-300"><DollarSign size={20} /></div>
-                    <h3 className="text-lg font-bold">Valor Latente del Negocio</h3>
+            {/* ROW: Productivity Metrics */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-[#AA895F]/5 border border-[#AA895F]/20 rounded-3xl p-6 shadow-sm">
+                    <p className="text-[10px] font-bold uppercase text-[#AA895F] tracking-wider mb-2">Honorario Promedio (NCI)</p>
+                    <div className="flex items-center gap-3">
+                        <div className="bg-[#AA895F]/10 p-2 rounded-xl text-[#AA895F]"><DollarSign size={20} /></div>
+                        <div>
+                            <p className="text-2xl font-black text-gray-800">
+                                {metrics.isDataReliable ? formatCurrency(metrics.honorariosPromedio) : 'Datos insuficientes'}
+                            </p>
+                            <p className="text-[10px] text-gray-400">
+                                {metrics.isDataReliable ? 'Ingreso neto promedio por punta' : 'Requiere 4 meses y 5 cierres'}
+                            </p>
+                        </div>
+                    </div>
                 </div>
-                <div className="mt-4">
-                    <span className="text-5xl font-black text-white block mb-1">{formatCurrency(pipelineValue)}</span>
-                    <span className="text-xs font-bold uppercase text-white/40 tracking-wider">Pipeline Ponderado (30% Stock + 20% Búsquedas)</span>
+                <div className="bg-[#364649]/5 border border-[#364649]/20 rounded-3xl p-6 shadow-sm">
+                    <p className="text-[10px] font-bold uppercase text-[#364649] tracking-wider mb-2">Ingreso por Actividad</p>
+                    <div className="flex items-center gap-3">
+                        <div className="bg-[#364649]/10 p-2 rounded-xl text-[#364649]"><TrendingUp size={20} /></div>
+                        <div>
+                            <p className="text-2xl font-black text-gray-800">
+                                {metrics.isDataReliable ? formatCurrency(metrics.productividadActividad) : 'Datos insuficientes'}
+                            </p>
+                            <p className="text-[10px] text-gray-400">
+                                {metrics.isDataReliable ? 'Valor de cada registro en Mi Semana' : 'Sin datos suficientes'}
+                            </p>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
+
+        </div >
     );
 }
 
-const KpiCard = ({ label, value, target, icon, color, bg, progress }: any) => (
-    <div className="bg-white border border-[#364649]/10 rounded-3xl p-6 shadow-sm relative overflow-hidden">
-        <div className="flex justify-between items-start mb-4">
-            <h3 className="text-xs font-bold uppercase text-[#364649]/50">{label}</h3>
-            <div className={`p-2 rounded-lg text-white ${bg} shadow-md`}>{icon}</div>
+// Donut Progress Component
+const DonutProgress = ({ value, color }: { value: number; color: string }) => {
+    const data = [
+        { name: 'Done', value: value },
+        { name: 'Remaining', value: Math.max(0, 100 - value) }
+    ];
+
+    return (
+        <div className="relative w-20 h-20">
+            <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                    <Pie
+                        data={data}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={28}
+                        outerRadius={38}
+                        startAngle={90}
+                        endAngle={-270}
+                        dataKey="value"
+                        stroke="none"
+                    >
+                        <Cell fill={color} />
+                        <Cell fill="#f3f4f6" />
+                    </Pie>
+                </PieChart>
+            </ResponsiveContainer>
+            <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-sm font-black text-gray-700">{Math.round(value)}%</span>
+            </div>
         </div>
-        <div className="flex items-baseline gap-2">
-            <span className={`text-3xl font-black text-[#364649]`}>{value}</span>
-            <span className="text-xs font-bold text-[#364649]/40">/ {target}</span>
+    );
+};
+
+// Activity Card Component
+const ActivityCard = ({ title, subtitle, done, target, color, icon, onClick }: {
+    title: string;
+    subtitle: string;
+    done: number;
+    target: number;
+    color: string;
+    icon: React.ReactNode;
+    onClick: () => void;
+}) => {
+    const progress = Math.min((done / target) * 100, 100);
+
+    return (
+        <div
+            onClick={onClick}
+            className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm cursor-pointer hover:shadow-lg transition-all group"
+        >
+            <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                    <div className="p-2 rounded-lg text-white" style={{ backgroundColor: color }}>{icon}</div>
+                    <div>
+                        <p className="text-xs font-bold uppercase text-gray-500">{title}</p>
+                        <p className="text-[10px] text-gray-400">{subtitle}</p>
+                    </div>
+                </div>
+                <ArrowRight size={16} className="text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+            <div className="flex items-end justify-between">
+                <div>
+                    <span className="text-3xl font-black" style={{ color }}>{done}</span>
+                    <span className="text-lg font-bold text-gray-300 ml-1">/ {target}</span>
+                </div>
+                <span className="text-xs font-bold text-gray-400">{Math.round(progress)}%</span>
+            </div>
+            <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden mt-3">
+                <div
+                    className="h-full transition-all duration-500 rounded-full"
+                    style={{ width: `${progress}%`, backgroundColor: color }}
+                ></div>
+            </div>
         </div>
-        <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden mt-4">
-            <div className={`h-full ${bg} transition-all duration-1000`} style={{ width: `${Math.min(progress, 100)}%` }}></div>
-        </div>
-    </div>
-);
+    );
+};

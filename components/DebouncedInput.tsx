@@ -1,24 +1,30 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 interface DebouncedInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'> {
     value: number;
-    onChange: (val: number) => void;
+    onChange: (val: number, name?: string) => void;
     className?: string;
+    name?: string; // Added name prop for stable handlers
 }
 
-export const DebouncedInput = ({
+export const DebouncedInput = React.memo(({
     value,
     onChange,
     className,
     id,
     disabled,
+    name,
     ...props
 }: DebouncedInputProps) => {
     const [localValue, setLocalValue] = useState<string>(value.toString());
+    const isFocusedRef = useRef(false);
 
     useEffect(() => {
-        setLocalValue(value.toString());
-    }, [value]);
+        // Only sync from parent when NOT focused (prevents overwriting user input)
+        if (!isFocusedRef.current && value.toString() !== localValue) {
+            setLocalValue(value.toString());
+        }
+    }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = e.target.value;
@@ -29,12 +35,15 @@ export const DebouncedInput = ({
     };
 
     const handleBlur = () => {
+        isFocusedRef.current = false;
         let num = parseFloat(localValue);
         if (localValue === '' || isNaN(num)) {
-            // Revert to original value if empty or invalid
-            setLocalValue(value.toString());
-        } else {
-            onChange(num);
+            num = 0;
+            setLocalValue('0');
+        }
+        // Only call onChange if the value actually changed
+        if (num !== value) {
+            onChange(num, name);
         }
     };
 
@@ -45,18 +54,27 @@ export const DebouncedInput = ({
         }
     };
 
+    const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+        isFocusedRef.current = true;
+        // Use setTimeout to avoid interfering with the click event
+        const target = e.target;
+        setTimeout(() => target.select(), 0);
+    };
+
     return (
         <input
             {...props}
             id={id}
+            name={name}
             type="text"
             inputMode="decimal"
             value={localValue}
             onChange={handleChange}
             onBlur={handleBlur}
             onKeyDown={handleKeyDown}
+            onFocus={handleFocus}
             disabled={disabled}
             className={className}
         />
     );
-};
+});

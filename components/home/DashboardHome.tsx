@@ -1,15 +1,15 @@
 
 import React, { useMemo, useState } from 'react';
 import {
-    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-    BarChart, Bar, Cell, PieChart, Pie
+    XAxis, YAxis, Tooltip, ResponsiveContainer,
+    BarChart, Bar, Cell
 } from 'recharts';
 import {
     TrendingUp, Users, Home, CheckCircle, ArrowUpRight,
     MoreHorizontal, ArrowDownRight, Filter, Megaphone, Link as LinkIcon,
-    Clock, MessageCircle, Target, Star, Search, ChevronDown, Check, Building2
+    Clock, MessageCircle, Target, Star, Search, ChevronDown, Check, Building2, AlertTriangle
 } from 'lucide-react';
-import { ClientRecord, PropertyRecord, VisitRecord, MarketingLog, BuyerClientRecord } from '../../types';
+import { ClientRecord, PropertyRecord, VisitRecord, MarketingLog, BuyerClientRecord, ActivityRecord } from '../../types';
 
 interface DashboardHomeProps {
     clients: ClientRecord[];
@@ -17,6 +17,30 @@ interface DashboardHomeProps {
     visits: VisitRecord[];
     marketingLogs: MarketingLog[];
     buyers: BuyerClientRecord[];
+    activities: ActivityRecord[]; // Added from parent
+    // Pre-calculated stats from App.tsx/MetricsWrapper
+    displayMetrics?: {
+        transactionsNeeded: number;
+        transactionsDone: number;
+        greenMeetingsTarget: number;
+        greenMeetingsDone: number;
+        pocketFees: number;
+        pocketFeesTarget: number;
+        criticalNumberTarget: number;
+        criticalNumberDone: number;
+        activeProperties: number;
+        greenMeetingsWeeklyTotal: number; // Suma total de actividades de la semana
+    };
+    displayBilling?: number; // Actual Billing
+    billingGoal?: number; // Goal Billing
+    pipelineValue?: number;
+    captationGoals?: {
+        weeklyPLTarget: number;
+        weeklyPLDone: number;
+    };
+    currentYear: number;
+    isHistoricalView?: boolean;
+    googleEvents?: any[]; // Added for agenda connection
 }
 
 // --- COMPONENTS ---
@@ -37,411 +61,321 @@ const CustomTooltip = ({ active, payload, label }: any) => {
     return null;
 };
 
-const KpiCard = ({ title, value, subtext, trend, icon, color, activeColor }: any) => (
-    <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md transition-shadow duration-300 relative overflow-hidden group">
-        {activeColor && <div className={`absolute top-0 left-0 w-1 h-full ${activeColor}`}></div>}
-        <div className="flex justify-between items-start mb-4">
-            <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">{title}</p>
-                <h3 className="text-3xl font-bold text-slate-800 mt-1">{value}</h3>
-            </div>
-            <div className={`p-3 rounded-xl ${color} text-white shadow-sm group-hover:scale-110 transition-transform`}>
-                {icon}
-            </div>
-        </div>
-        <div className="flex items-center text-xs font-medium">
-            {trend !== undefined && (
-                trend > 0 ? (
-                    <span className="text-emerald-600 flex items-center bg-emerald-50 px-2 py-0.5 rounded-full mr-2">
-                        <ArrowUpRight size={12} className="mr-1" /> +{trend}%
-                    </span>
-                ) : (
-                    <span className="text-slate-400 flex items-center bg-slate-50 px-2 py-0.5 rounded-full mr-2">
-                        {trend === 0 ? '-' : <><ArrowDownRight size={12} className="mr-1" /> {trend}%</>}
-                    </span>
-                )
-            )}
-            <span className="text-slate-400 truncate">{subtext}</span>
-        </div>
-    </div>
-);
+// Google Colors Helper for agenda synchronization
+const getGoogleColor = (colorId: string) => {
+    const colors: any = {
+        '1': '#7986cb', // Lavender
+        '2': '#33b679', // Sage
+        '3': '#8e24aa', // Grape
+        '4': '#e67c73', // Flamingo
+        '5': '#f6bf26', // Banana
+        '6': '#f4511e', // Tangerine
+        '7': '#039be5', // Peacock
+        '8': '#616161', // Graphite
+        '9': '#3f51b5', // Blueberry
+        '10': '#0b8043', // Basil
+        '11': '#d50000'  // Tomato
+    };
+    return colors[colorId] || '#039be5'; // Default Blue
+};
 
-const DashboardHome: React.FC<DashboardHomeProps> = ({ clients, properties, visits, marketingLogs, buyers }) => {
+
+const DashboardHome: React.FC<DashboardHomeProps> = ({
+    clients, properties, visits, marketingLogs, buyers, activities,
+    displayMetrics, displayBilling = 0, billingGoal = 0, pipelineValue = 0,
+    captationGoals, currentYear, isHistoricalView,
+    googleEvents = []
+}) => {
     const [selectedPropertyId, setSelectedPropertyId] = useState<string>('all');
-
-    // Custom Filter State
-    const [isFilterOpen, setIsFilterOpen] = useState(false);
-    const [filterSearch, setFilterSearch] = useState('');
-
     const isGlobal = selectedPropertyId === 'all';
 
-    // --- 1. FILTERING DATA ---
-
-    // Filter Options Logic
-    const filteredOptions = useMemo(() => {
-        const term = filterSearch.toLowerCase();
-        // SAFEGUARD: Ensure properties exist and have required fields
-        if (!properties || !Array.isArray(properties)) return [];
-
-        return properties.filter(p => {
-            try {
-                const street = p?.address?.street?.toLowerCase() || '';
-                const hood = p?.address?.neighborhood?.toLowerCase() || '';
-                const cid = p?.customId?.toLowerCase() || '';
-                return street.includes(term) || hood.includes(term) || cid.includes(term);
-            } catch (e) {
-                console.warn("Error filtering property:", p, e);
-                return false;
-            }
-        });
-    }, [properties, filterSearch]);
-
-    const handleSelectProperty = (id: string) => {
-        setSelectedPropertyId(id);
-        setIsFilterOpen(false);
-        setFilterSearch('');
-    };
+    // --- 1. PROPERTY SELECTOR LOGIC ---
+    const activeProperties = useMemo(() => properties.filter(p => p.status === 'disponible' || p.status === 'reservada'), [properties]);
 
     const getSelectedLabel = () => {
-        if (selectedPropertyId === 'all') return 'Global (Toda la cartera)';
+        if (selectedPropertyId === 'all') return 'Todas las Propiedades (Global)';
         const p = properties.find(i => i.id === selectedPropertyId);
         return p ? `${p.address.street} ${p.address.number}` : 'Seleccionar Propiedad...';
     };
 
-    // KPI Data Filtering
-    const filteredLogs = useMemo(() => {
-        if (isGlobal) return marketingLogs;
-        return marketingLogs.filter(l => l.propertyId === selectedPropertyId);
-    }, [marketingLogs, selectedPropertyId, isGlobal]);
+    // --- 2. DATA FILTERING ---
+    const filteredLogs = useMemo(() => isGlobal ? marketingLogs : marketingLogs.filter(l => l.propertyId === selectedPropertyId), [marketingLogs, selectedPropertyId, isGlobal]);
+    const filteredVisits = useMemo(() => isGlobal ? visits : visits.filter(v => v.propertyId === selectedPropertyId), [visits, selectedPropertyId, isGlobal]);
+    const filteredProperties = useMemo(() => isGlobal ? properties : properties.filter(p => p.id === selectedPropertyId), [properties, selectedPropertyId, isGlobal]);
 
-    const filteredVisits = useMemo(() => {
-        if (isGlobal) return visits;
-        return visits.filter(v => v.propertyId === selectedPropertyId);
-    }, [visits, selectedPropertyId, isGlobal]);
-
-    const filteredProperties = useMemo(() => {
-        if (isGlobal) return properties;
-        return properties.filter(p => p.id === selectedPropertyId);
-    }, [properties, selectedPropertyId, isGlobal]);
-
-    // --- 2. CALCULATE KPIS (DYNAMIC LOGIC) ---
-
-    // COMMON METRICS
-    const totalSales = filteredProperties.filter(p => p.status === 'vendida').length;
-    const visitCount = filteredVisits.length;
+    // --- 3. METRICS CALCULATIONS ---
     const totalInquiries = filteredLogs.reduce((acc, l) => acc + l.marketplace.inquiries + l.social.inquiries + l.ads.inquiries, 0);
-
-    // LOGIC SWITCHER (SAFEGUARDED)
-    const kpis = useMemo(() => {
-        try {
-            if (isGlobal) {
-                // --- GLOBAL METRICS ---
-                const activeProps = filteredProperties.filter(p => p?.status === 'disponible').length;
-
-                const currentMonth = new Date().getMonth();
-                const currentYear = new Date().getFullYear();
-                const newBuyers = (buyers || []).filter(b => {
-                    if (!b?.createdAt) return false;
-                    const d = new Date(b.createdAt);
-                    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-                }).length;
-
-                const now = new Date();
-                const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
-                const weeklyVisits = (filteredVisits || []).filter(v => v?.date && new Date(v.date) >= startOfWeek).length;
-
-                const closingRate = visitCount > 0 ? ((totalSales / visitCount) * 100).toFixed(1) : "0.0";
-
-                return [
-                    { title: "Propiedades Activas", value: activeProps, sub: "Cartera Total", icon: <Home size={20} />, color: "bg-[#364649]", active: "bg-[#364649]" },
-                    { title: "Nuevos Compradores", value: newBuyers, sub: "Este Mes", icon: <Users size={20} />, color: "bg-[#AA895F]", active: "bg-[#AA895F]", trend: 10 },
-                    { title: "Visitas Semanales", value: weeklyVisits, sub: "Últimos 7 días", icon: <CheckCircle size={20} />, color: "bg-[#708F96]", active: "bg-[#708F96]", trend: weeklyVisits > 0 ? 5 : 0 },
-                    { title: "Tasa de Cierre", value: `${closingRate}%`, sub: "Ventas / Visitas", icon: <TrendingUp size={20} />, color: "bg-emerald-500", active: "bg-emerald-500", trend: Number(closingRate) > 1 ? 2 : 0 }
-                ];
-            } else {
-                // --- SINGLE PROPERTY METRICS ---
-                const prop = filteredProperties[0];
-                if (!prop) {
-                    return [
-                        { title: "Error", value: 0, sub: "No Property", icon: <Home size={20} />, color: "bg-red-500", active: "bg-red-500" }
-                    ];
-                }
-
-                // Days on Market
-                const created = new Date(prop.createdAt || new Date());
-                const now = new Date();
-                const diffTime = Math.abs(now.getTime() - created.getTime());
-                const daysOnMarket = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-                // Conversion (Inquiries -> Visits)
-                const conversionRate = totalInquiries > 0 ? ((visitCount / totalInquiries) * 100).toFixed(1) : "0.0";
-
-                return [
-                    { title: "Días en Mercado", value: daysOnMarket, sub: `Desde ${created.toLocaleDateString()}`, icon: <Clock size={20} />, color: "bg-[#364649]", active: "bg-[#364649]" },
-                    { title: "Consultas Totales", value: totalInquiries, sub: "Acumulado Mkt.", icon: <MessageCircle size={20} />, color: "bg-[#AA895F]", active: "bg-[#AA895F]", trend: totalInquiries > 10 ? 15 : 0 },
-                    { title: "Visitas Realizadas", value: visitCount, sub: "Interesados físicos", icon: <CheckCircle size={20} />, color: "bg-[#708F96]", active: "bg-[#708F96]" },
-                    { title: "Efectividad Mkt", value: `${conversionRate}%`, sub: "Consultas a Visitas", icon: <Target size={20} />, color: "bg-emerald-500", active: "bg-emerald-500", trend: Number(conversionRate) > 5 ? 5 : -2 }
-                ];
-            }
-        } catch (err) {
-            console.error("Error calculating KPIs:", err);
-            return [];
-        }
-    }, [isGlobal, filteredProperties, buyers, filteredVisits, visitCount, totalSales, totalInquiries]);
-
-
-    // --- 3. CHART DATA ---
+    const visitCount = filteredVisits.length;
+    const totalSales = filteredProperties.filter(p => p.status === 'vendida').length;
 
     // Funnel Data
     const funnelStats = useMemo(() => {
         const imps = filteredLogs.reduce((acc, l) => acc + l.marketplace.impressions + l.social.impressions + l.ads.impressions, 0);
         const clicks = filteredLogs.reduce((acc, l) => acc + l.marketplace.clicks + l.social.clicks + l.ads.clicks, 0);
-        // Inquiries & Visits calculated above
         const offers = filteredVisits.filter(v => v.nextSteps?.action === 'ofertar').length;
 
         return [
-            { name: 'Impresiones', value: imps, fill: '#3b82f6' },
-            { name: 'Clicks', value: clicks, fill: '#6366f1' },
-            { name: 'Consultas', value: totalInquiries, fill: '#8b5cf6' },
-            { name: 'Visitas', value: visitCount, fill: '#d946ef' },
-            { name: 'Ofertas', value: offers, fill: '#f43f5e' },
-            { name: 'Ventas', value: totalSales, fill: '#AA895F' }
+            { name: 'Impresiones', value: imps, fill: '#708F96' },
+            { name: 'Clicks', value: clicks, fill: '#364649' },
+            { name: 'Consultas', value: totalInquiries, fill: '#AA895F' },
+            { name: 'Visitas', value: visitCount, fill: '#708F96' },
+            { name: 'Ofertas', value: offers, fill: '#AA895F' },
+            { name: 'Ventas', value: totalSales, fill: '#364649' }
         ];
     }, [filteredLogs, filteredVisits, totalInquiries, visitCount, totalSales]);
 
-    // Secondary Chart Logic (Pie vs Feedback)
-    const secondaryChartData = useMemo(() => {
-        if (isGlobal) {
-            // Global: Inventory Composition
-            const counts: Record<string, number> = {};
-            filteredProperties.forEach(p => {
-                const type = p.type.charAt(0).toUpperCase() + p.type.slice(1);
-                counts[type] = (counts[type] || 0) + 1;
-            });
-            const colors = ['#364649', '#AA895F', '#708F96', '#94a3b8', '#cbd5e1', '#64748b'];
-            return Object.keys(counts).map((key, i) => ({
-                name: key, value: counts[key], color: colors[i % colors.length]
-            }));
-        } else {
-            // Single: Feedback Ratings (1-5 Stars)
-            const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-            filteredVisits.forEach(v => {
-                if (v.feedback?.rating) {
-                    // @ts-ignore
-                    counts[v.feedback.rating] = (counts[v.feedback.rating] || 0) + 1;
-                }
-            });
-            // Colors from Red to Green
-            const ratingColors = ['#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e'];
-            return Object.keys(counts).map((key, i) => ({
-                name: `${key} Estrellas`, value: counts[key as any], color: ratingColors[i]
-            }));
-        }
-    }, [isGlobal, filteredProperties, filteredVisits]);
+    // Today's Agenda (Simplified based on app data)
+    const today = new Date().toISOString().split('T')[0];
+    const todayAgenda = useMemo(() => {
+        const todVisits = visits.filter(v => v.date === today).map(v => ({
+            time: v.time || '00:00',
+            title: `Visita: ${properties.find(p => p.id === v.propertyId)?.address.street || 'Propiedad'}`,
+            type: 'visita'
+        }));
+        const todActivities = activities.filter(a => a.date === today).map(a => ({
+            time: a.time || '00:00',
+            title: `Actividad: ${a.type}`,
+            type: 'actividad'
+        }));
+        return [...todVisits, ...todActivities].sort((a, b) => a.time.localeCompare(b.time));
+    }, [visits, activities, properties, today]);
 
-    // Marketing Channels Breakdown
-    const channelStats = useMemo(() => {
-        const initial = {
-            marketplace: { imp: 0, click: 0, inq: 0 },
-            social: { imp: 0, click: 0, inq: 0 },
-            ads: { imp: 0, click: 0, inq: 0 }
-        };
-        return filteredLogs.reduce((acc, l) => {
-            acc.marketplace.imp += l.marketplace.impressions;
-            acc.marketplace.click += l.marketplace.clicks;
-            acc.marketplace.inq += l.marketplace.inquiries;
+    // Red Zone Properties (No visits in last 15 days)
+    const redZoneProps = useMemo(() => {
+        const fifteenDaysAgo = new Date();
+        fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
 
-            acc.social.imp += l.social.impressions;
-            acc.social.click += l.social.clicks;
-            acc.social.inq += l.social.inquiries;
-
-            acc.ads.imp += l.ads.impressions;
-            acc.ads.click += l.ads.clicks;
-            acc.ads.inq += l.ads.inquiries;
-            return acc;
-        }, initial);
-    }, [filteredLogs]);
-
-    // Visit Source Stats
-    const sourceStats = useMemo(() => {
-        const counts: Record<string, number> = {};
-        filteredVisits.forEach(v => {
-            const src = v.source || 'otro';
-            const label = src.charAt(0).toUpperCase() + src.slice(1);
-            counts[label] = (counts[label] || 0) + 1;
+        return activeProperties.filter(p => {
+            const propVisits = visits.filter(v => v.propertyId === p.id);
+            if (propVisits.length === 0) return true; // Never visited
+            const lastVisitDate = new Date(Math.max(...propVisits.map(v => new Date(v.date).getTime())));
+            return lastVisitDate < fifteenDaysAgo;
         });
+    }, [activeProperties, visits]);
 
-        const data = Object.keys(counts).map(key => {
-            let color = '#708F96';
-            const k = key.toLowerCase();
-            if (k.includes('marketplace')) color = '#9333ea';
-            else if (k.includes('social')) color = '#db2777';
-            else if (k.includes('ads')) color = '#2563eb';
-            else if (k.includes('cartel')) color = '#AA895F';
-
-            return { name: key, value: counts[key], fill: color };
-        }).sort((a, b) => b.value - a.value);
-
-        return data;
-    }, [filteredVisits]);
+    // --- HELPER RENDERS ---
+    const ProgressBar = ({ value, max, color = "bg-[#AA895F]", label }: { value: number, max: number, color?: string, label?: string }) => {
+        const percentage = max > 0 ? Math.min((value / max) * 100, 100) : 0;
+        return (
+            <div className="w-full">
+                <div className="flex justify-between items-end mb-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{label}</span>
+                    <span className="text-xs font-black text-[#364649]">{percentage.toFixed(0)}%</span>
+                </div>
+                <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                    <div className={`h-full ${color} rounded-full transition-all duration-1000`} style={{ width: `${percentage}%` }}></div>
+                </div>
+            </div>
+        );
+    };
 
     return (
         <div className="space-y-8 pb-10">
-
-            {/* 1. HEADER & FILTER */}
-            <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-[#364649] tracking-tight">Tablero de Control</h1>
-                    <p className="text-[#364649]/60 text-sm font-medium mt-1">
-                        {isGlobal ? 'Visión General del Negocio' : 'Análisis de Propiedad Individual'}
-                    </p>
-                </div>
-
-                {/* CUSTOM SEARCHABLE DROPDOWN */}
-                <div className="relative min-w-[320px] z-50">
-                    {/* Overlay to close on click outside */}
-                    {isFilterOpen && (
-                        <div className="fixed inset-0 z-40" onClick={() => setIsFilterOpen(false)}></div>
-                    )}
-
-                    {/* Trigger Button */}
-                    <button
-                        onClick={() => setIsFilterOpen(!isFilterOpen)}
-                        className="w-full bg-white border border-slate-200 text-slate-700 pl-4 pr-10 py-3 rounded-xl text-sm font-bold shadow-sm flex items-center justify-between hover:border-[#AA895F] transition-all relative z-50 focus:outline-none focus:ring-2 focus:ring-[#AA895F]/30"
-                    >
-                        <div className="flex flex-col text-left truncate">
-                            <span className="text-[10px] text-slate-400 font-normal uppercase tracking-wider mb-0.5">Filtrar Vista</span>
-                            <span className="truncate text-[#364649]">{getSelectedLabel()}</span>
-                        </div>
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2 bg-slate-100 p-1 rounded-full">
-                            <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${isFilterOpen ? 'rotate-180' : ''}`} />
-                        </div>
-                    </button>
-
-                    {/* Dropdown Panel */}
-                    {isFilterOpen && (
-                        <div className="absolute top-full mt-2 left-0 w-full bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden animate-fade-in-up z-50">
-                            {/* Search Input */}
-                            <div className="p-3 border-b border-slate-100 bg-slate-50/50">
-                                <div className="relative">
-                                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                    <input
-                                        type="text"
-                                        placeholder="Buscar calle, barrio, ID..."
-                                        className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs font-medium focus:outline-none focus:border-[#AA895F] focus:ring-1 focus:ring-[#AA895F] transition-all"
-                                        value={filterSearch}
-                                        onChange={(e) => setFilterSearch(e.target.value)}
-                                        autoFocus
-                                    />
-                                </div>
-                            </div>
-
-                            {/* List */}
-                            <div className="max-h-[350px] overflow-y-auto custom-scrollbar">
-                                {/* Global Option */}
-                                <button
-                                    onClick={() => handleSelectProperty('all')}
-                                    className={`w-full text-left px-4 py-3 flex items-center hover:bg-slate-50 transition-colors border-b border-slate-50 ${selectedPropertyId === 'all' ? 'bg-[#AA895F]/5' : ''}`}
-                                >
-                                    <div className={`p-2 rounded-lg mr-3 shadow-sm ${selectedPropertyId === 'all' ? 'bg-[#AA895F] text-white' : 'bg-slate-100 text-slate-400'}`}>
-                                        <Building2 size={18} />
-                                    </div>
-                                    <div>
-                                        <p className={`text-sm font-bold ${selectedPropertyId === 'all' ? 'text-[#AA895F]' : 'text-[#364649]'}`}>Visión Global</p>
-                                        <p className="text-[10px] text-slate-400">Todas las propiedades de la cartera</p>
-                                    </div>
-                                    {selectedPropertyId === 'all' && <Check size={16} className="ml-auto text-[#AA895F]" />}
-                                </button>
-
-                                {/* Filtered Properties */}
-                                {filteredOptions.length === 0 ? (
-                                    <div className="p-6 text-center text-xs text-slate-400 flex flex-col items-center">
-                                        <Search size={24} className="mb-2 opacity-20" />
-                                        No se encontraron propiedades.
-                                    </div>
-                                ) : (
-                                    filteredOptions.map(p => (
-                                        <button
-                                            key={p.id}
-                                            onClick={() => handleSelectProperty(p.id)}
-                                            className={`w-full text-left px-4 py-3 flex items-center hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0 group ${selectedPropertyId === p.id ? 'bg-[#AA895F]/5' : ''}`}
-                                        >
-                                            <div className="w-10 h-10 bg-slate-100 rounded-lg mr-3 overflow-hidden shrink-0 border border-slate-200 group-hover:border-[#AA895F]/30 transition-colors">
-                                                {p.files.photos[0] ? (
-                                                    <img src={p.files.photos[0]} alt="" className="w-full h-full object-cover" />
-                                                ) : (
-                                                    <div className="w-full h-full flex items-center justify-center"><Home size={14} className="text-slate-300" /></div>
-                                                )}
-                                            </div>
-                                            <div className="min-w-0 flex-1">
-                                                <div className="flex justify-between items-center mb-0.5">
-                                                    <p className={`truncate text-sm font-bold ${selectedPropertyId === p.id ? 'text-[#AA895F]' : 'text-[#364649]'}`}>{p.address.street} {p.address.number}</p>
-                                                    <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ml-2 whitespace-nowrap ${p.status === 'disponible' ? 'bg-emerald-100 text-emerald-700' :
-                                                        p.status === 'reservada' ? 'bg-amber-100 text-amber-700' :
-                                                            'bg-slate-100 text-slate-500'
-                                                        }`}>
-                                                        {p.status.slice(0, 4)}.
-                                                    </span>
-                                                </div>
-                                                <p className="text-[10px] text-slate-400 truncate flex items-center">
-                                                    {p.address.neighborhood} <span className="mx-1">•</span> {p.customId}
-                                                </p>
-                                            </div>
-                                            {selectedPropertyId === p.id && <Check size={16} className="ml-auto text-[#AA895F] shrink-0 pl-2" />}
-                                        </button>
-                                    ))
-                                )}
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* 2. KPI CARDS (Context Aware) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {kpis.map((kpi, idx) => (
-                    <KpiCard
-                        key={idx}
-                        title={kpi.title}
-                        value={kpi.value}
-                        subtext={kpi.sub}
-                        trend={kpi.trend}
-                        icon={kpi.icon}
-                        color={kpi.color}
-                        activeColor={kpi.active}
-                    />
-                ))}
-            </div>
-
-            {/* 3. MIDDLE ROW: CHARTS */}
+            {/* FIRST LINE: STRATEGIC NUMBERS */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-                {/* FUNNEL CHART */}
-                <div className="lg:col-span-2 bg-white rounded-3xl p-6 shadow-sm border border-slate-100" style={{ animationDelay: '0.1s' }}>
-                    <div className="flex justify-between items-center mb-6">
-                        <h3 className="font-bold text-slate-700 text-lg">Embudo de {isGlobal ? 'Ventas Integrado' : 'Conversión Propiedad'}</h3>
-                        <button className="text-slate-400 hover:text-[#AA895F]"><MoreHorizontal size={20} /></button>
+                {/* 1. ANNUAL BILLING */}
+                <div className="bg-[#364649] rounded-3xl p-8 shadow-lg text-white relative overflow-hidden flex flex-col justify-between min-h-[240px] border border-white/5">
+                    <div className="absolute top-0 right-0 p-4 opacity-10"><TrendingUp size={140} /></div>
+                    <div className="relative z-10">
+                        <p className="text-xs font-black uppercase text-[#AA895F] mb-2 tracking-[0.2em]">Facturación {isHistoricalView ? 'Histórica' : currentYear}</p>
+                        <h3 className="text-5xl font-black mb-1">USD {Math.round(displayBilling).toLocaleString()}</h3>
+                        <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#AA895F] rounded-lg mt-2 shadow-sm">
+                            <Target size={14} className="text-white" />
+                            <p className="text-xs font-black text-white uppercase tracking-wider">Meta: {billingGoal.toLocaleString()}</p>
+                        </div>
+                    </div>
+                    <div className="mt-6 relative z-10">
+                        <ProgressBar value={displayBilling} max={billingGoal} color="bg-[#AA895F]" label="Progreso del Objetivo Anual" />
+                    </div>
+                </div>
+
+                {/* 2. WEEKLY ACTIVITY (TARGET 15) */}
+                <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100 flex flex-col justify-between min-h-[240px] hover:shadow-md transition-shadow">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-xs font-black uppercase text-slate-400 tracking-[0.15em] mb-2">Actividades de la Semana</p>
+                            <h3 className="text-5xl font-black text-[#364649] mb-1">{displayMetrics?.greenMeetingsWeeklyTotal || 0}</h3>
+                            <div className="flex items-center gap-1.5 mt-2">
+                                <Users size={16} className="text-[#AA895F]" />
+                                <span className="text-sm font-black text-[#AA895F]">META: 15 REUNIONES</span>
+                            </div>
+                        </div>
+                        <div className="bg-[#AA895F]/10 p-4 rounded-2xl text-[#AA895F]"><Users size={24} /></div>
+                    </div>
+                    <div className="mt-6">
+                        <ProgressBar value={displayMetrics?.greenMeetingsWeeklyTotal || 0} max={15} color="bg-[#AA895F]" label="Cumplimiento Estándar" />
+                    </div>
+                </div>
+
+                {/* 3. CRITICAL NUMBER (WEEKLY PL/PB) */}
+                <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100 flex flex-col justify-between min-h-[240px] hover:shadow-md transition-shadow">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-xs font-black uppercase text-slate-400 tracking-[0.15em] mb-2">Número Crítico Semanal</p>
+                            <h3 className="text-5xl font-black text-[#364649] mb-1">{displayMetrics?.criticalNumberDone.toFixed(1) || '0.0'}</h3>
+                            <div className="flex items-center gap-2 mt-2 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100">
+                                <span className="text-[10px] font-black text-emerald-700 uppercase tracking-wider">Objetivo PL/PB: {displayMetrics?.criticalNumberTarget.toFixed(1) || '0.0'}</span>
+                            </div>
+                        </div>
+                        <div className="bg-[#708F96]/10 p-4 rounded-2xl text-[#708F96]"><Target size={24} /></div>
                     </div>
 
-                    <div className="h-[300px] w-full">
+                    <div className="mt-6 space-y-4">
+                        <ProgressBar value={displayMetrics?.criticalNumberDone || 0} max={displayMetrics?.criticalNumberTarget || 1} color="bg-[#708F96]" label="Tracción de Negocio" />
+
+                        <div className="flex justify-between items-center bg-[#AA895F]/10 px-4 py-3 rounded-2xl border border-[#AA895F]/20">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-[#364649]">Pre-listings</span>
+                            <span className="text-[#AA895F] font-black text-sm">{captationGoals?.weeklyPLDone.toFixed(1)} / {captationGoals?.weeklyPLTarget.toFixed(1)}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* SECOND LINE: WEEKLY AGENDA (MON-SUN) */}
+            <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100">
+                <div className="flex justify-between items-center mb-6">
+                    <div>
+                        <h3 className="text-xl font-black text-[#364649]">Agenda Semanal</h3>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1 text-left">Reuniones y Compromisos Programados</p>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
+                    {(() => {
+                        const start = new Date();
+                        const dayOfWeek = start.getDay();
+                        const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+                        const monday = new Date(start);
+                        monday.setDate(start.getDate() + mondayOffset);
+                        monday.setHours(0, 0, 0, 0);
+
+                        return Array.from({ length: 7 }, (_, i) => {
+                            const day = new Date(monday);
+                            day.setDate(monday.getDate() + i);
+                            const dayStr = day.toISOString().split('T')[0];
+                            const isToday = new Date().toISOString().split('T')[0] === dayStr;
+
+                            // Filter Google Events for this day
+                            const dayEvents = googleEvents.filter((e: any) => {
+                                const eventDate = e.start.dateTime || e.start.date;
+                                const target = new Date(eventDate);
+                                return day.getDate() === target.getDate() &&
+                                    day.getMonth() === target.getMonth() &&
+                                    day.getFullYear() === target.getFullYear();
+                            }).map(e => {
+                                const eventTime = e.start.dateTime ? new Date(e.start.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Todo el día';
+                                return {
+                                    time: eventTime,
+                                    title: e.summary || 'Sin título',
+                                    type: 'google',
+                                    color: getGoogleColor(e.colorId)
+                                };
+                            }).sort((a, b) => a.time.localeCompare(b.time));
+
+                            return (
+                                <div key={i} className={`flex flex-col rounded-3xl p-4 min-h-[180px] transition-all ${isToday ? 'bg-[#AA895F]/5 ring-2 ring-[#AA895F]/20' : 'bg-slate-50 border border-slate-100'}`}>
+                                    <div className="mb-3 border-b border-slate-200/50 pb-2">
+                                        <p className={`text-[10px] font-black uppercase tracking-tighter ${isToday ? 'text-[#AA895F]' : 'text-slate-400'}`}>
+                                            {day.toLocaleDateString('es-AR', { weekday: 'long' })}
+                                        </p>
+                                        <p className={`text-lg font-black ${isToday ? 'text-[#AA895F]' : 'text-[#364649]'}`}>{day.getDate()}</p>
+                                    </div>
+                                    <div className="space-y-2 flex-grow overflow-y-auto max-h-[140px] custom-scrollbar pr-1">
+                                        {dayEvents.length > 0 ? dayEvents.map((ev: any, idx) => (
+                                            <div key={idx} className="bg-white p-2 rounded-xl shadow-sm border border-slate-100 flex flex-col items-start text-left">
+                                                <span
+                                                    className="text-[9px] font-black text-white px-1.5 py-0.5 rounded-md mb-1 shadow-sm"
+                                                    style={{ backgroundColor: ev.color }}
+                                                >
+                                                    {ev.time}
+                                                </span>
+                                                <p className="text-[10px] font-bold text-[#364649] leading-tight line-clamp-2">{ev.title}</p>
+                                            </div>
+                                        )) : (
+                                            <div className="flex flex-col items-center justify-center h-full opacity-20 grayscale">
+                                                <Clock size={16} className="text-slate-400" />
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        });
+                    })()}
+                </div>
+            </div>
+
+            {/* THIRD LINE: PROPERTIES & FUNNEL */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* 1. ACTIVE PROPERTIES - NOW LARGER (2 cols) */}
+                <div className="lg:col-span-2 text-left">
+                    {/* Active Properties Summary */}
+                    <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100 h-full">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-lg font-black text-[#364649] flex items-center gap-2">
+                                <Home size={22} className="text-[#AA895F]" />
+                                Cartera Activa ({activeProperties.length})
+                            </h3>
+                            <div className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-3 py-1.5 bg-slate-50 rounded-xl hover:bg-slate-100 cursor-pointer transition-colors">Listado</div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
+                            {activeProperties.slice(0, 8).map(p => (
+                                <div key={p.id} className="flex items-center gap-4 p-3 hover:bg-slate-50 rounded-2xl transition-all group cursor-pointer border border-transparent hover:border-slate-100" onClick={() => setSelectedPropertyId(p.id)}>
+                                    <div className="w-12 h-12 bg-slate-100 rounded-xl overflow-hidden shadow-sm shrink-0 border border-slate-200">
+                                        {p.files.photos[0] ? <img src={p.files.photos[0]} className="w-full h-full object-cover" /> : <Home size={18} className="m-auto mt-3 text-slate-300" />}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-xs font-black text-[#364649] truncate group-hover:text-[#AA895F] transition-colors uppercase tracking-tight">{p.address.street} {p.address.number}</p>
+                                        <p className="text-[11px] text-slate-400 font-bold">{p.address.neighborhood} • {p.price} {p.currency}</p>
+                                    </div>
+                                    {redZoneProps.some(rz => rz.id === p.id) && (
+                                        <div className="w-2.5 h-2.5 bg-rose-500 rounded-full animate-pulse shadow-sm shadow-rose-200" title="Zona Roja: Sin visitas"></div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* 2. PROPERTY FUNNEL - NOW SMALLER (1 col) */}
+                <div className="lg:col-span-1 bg-white rounded-[2.5rem] p-6 shadow-sm border border-slate-100 flex flex-col">
+                    <div className="mb-4">
+                        <h3 className="text-lg font-black text-[#364649] text-left">Embudo de Conversión</h3>
+                        <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider text-left mt-1">{isGlobal ? 'Global' : 'Individual'}</p>
+                    </div>
+
+                    {/* Property Selector for Funnel */}
+                    <div className="relative w-full mb-4">
+                        <select
+                            value={selectedPropertyId}
+                            onChange={(e) => setSelectedPropertyId(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 text-[10px] font-black uppercase tracking-wider text-[#364649] px-4 py-3 rounded-xl focus:ring-2 focus:ring-[#AA895F]/30 outline-none appearance-none cursor-pointer hover:bg-slate-100 transition-colors shadow-sm"
+                        >
+                            <option value="all">🌐 TODA LA CARTERA</option>
+                            <optgroup label="Propiedades">
+                                {activeProperties.map(p => (
+                                    <option key={p.id} value={p.id}>{p.address.street} {p.address.number}</option>
+                                ))}
+                            </optgroup>
+                        </select>
+                        <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    </div>
+
+                    {/* THE FUNNEL CHART - Compact */}
+                    <div className="flex-1 min-h-[280px]">
                         <ResponsiveContainer width="100%" height="100%">
-                            <BarChart
-                                layout="vertical"
-                                data={funnelStats}
-                                margin={{ top: 5, right: 30, left: 40, bottom: 5 }}
-                            >
-                                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                            <BarChart layout="vertical" data={funnelStats} margin={{ top: 0, left: 0, right: 10, bottom: 0 }}>
                                 <XAxis type="number" hide />
                                 <YAxis
                                     dataKey="name"
                                     type="category"
-                                    tick={{ fill: '#64748b', fontSize: 12, fontWeight: 600 }}
-                                    width={100}
+                                    width={70}
+                                    tick={{ fill: '#364649', fontSize: 9, fontWeight: 900 }}
                                     axisLine={false}
                                     tickLine={false}
                                 />
-                                <Tooltip content={<CustomTooltip />} cursor={{ fill: 'transparent' }} />
-                                <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={32}>
+                                <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f8fafc' }} />
+                                <Bar dataKey="value" radius={[0, 8, 8, 0]} barSize={24}>
                                     {funnelStats.map((entry, index) => (
                                         <Cell key={`cell-${index}`} fill={entry.fill} />
                                     ))}
@@ -450,139 +384,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ clients, properties, visi
                         </ResponsiveContainer>
                     </div>
                 </div>
-
-                {/* SECONDARY CHART: PIE (GLOBAL) OR RATINGS (SINGLE) */}
-                <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 flex flex-col" style={{ animationDelay: '0.2s' }}>
-                    <div className="flex justify-between items-center mb-2">
-                        <h3 className="font-bold text-slate-700 text-lg">{isGlobal ? 'Inventario' : 'Satisfacción Visitas'}</h3>
-                        {isGlobal ? <Home size={18} className="text-[#AA895F]" /> : <Star size={18} className="text-[#AA895F]" />}
-                    </div>
-
-                    <div className="flex-1 relative min-h-[250px]">
-                        {secondaryChartData.length > 0 && secondaryChartData.some(d => d.value > 0) ? (
-                            <>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    {isGlobal ? (
-                                        <PieChart>
-                                            <Pie
-                                                data={secondaryChartData}
-                                                cx="50%"
-                                                cy="50%"
-                                                innerRadius={70}
-                                                outerRadius={90}
-                                                paddingAngle={5}
-                                                dataKey="value"
-                                                stroke="none"
-                                                cornerRadius={4}
-                                            >
-                                                {secondaryChartData.map((entry, index) => (
-                                                    <Cell key={`cell-${index}`} fill={entry.color} />
-                                                ))}
-                                            </Pie>
-                                            <Tooltip content={<CustomTooltip />} />
-                                        </PieChart>
-                                    ) : (
-                                        <BarChart data={secondaryChartData} layout="vertical" margin={{ top: 0, left: 0, right: 0, bottom: 0 }}>
-                                            <XAxis type="number" hide />
-                                            <YAxis dataKey="name" type="category" width={80} tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
-                                            <Tooltip content={<CustomTooltip />} cursor={{ fill: 'transparent' }} />
-                                            <Bar dataKey="value" barSize={20} radius={[0, 4, 4, 0]}>
-                                                {secondaryChartData.map((entry, index) => (
-                                                    <Cell key={`cell-${index}`} fill={entry.color} />
-                                                ))}
-                                            </Bar>
-                                        </BarChart>
-                                    )}
-                                </ResponsiveContainer>
-
-                                {isGlobal && (
-                                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                                        <span className="text-4xl font-bold text-slate-800">{filteredProperties.length}</span>
-                                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total</span>
-                                    </div>
-                                )}
-                            </>
-                        ) : (
-                            <div className="h-full flex flex-col items-center justify-center text-slate-400 text-sm">
-                                <p>Sin datos suficientes</p>
-                                {!isGlobal && <p className="text-xs mt-1">(Requiere feedback de visitas)</p>}
-                            </div>
-                        )}
-                    </div>
-
-                    {isGlobal && (
-                        <div className="flex justify-center gap-2 mt-2 flex-wrap">
-                            {secondaryChartData.slice(0, 3).map((item, i) => (
-                                <div key={i} className="flex items-center text-[10px]">
-                                    <span className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: item.color }}></span>
-                                    <span className="text-slate-500 font-medium">{item.name}</span>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
             </div>
-
-            {/* 4. VISITS SOURCE CHART & MARKETING CHANNELS */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" style={{ animationDelay: '0.25s' }}>
-
-                {/* VISIT SOURCE CHART */}
-                <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
-                    <h3 className="text-lg font-bold text-[#364649] mb-6 flex items-center">
-                        <LinkIcon className="mr-2 text-[#708F96]" size={20} /> Origen de {isGlobal ? 'Leads (Global)' : 'Interesados (Esta Propiedad)'}
-                    </h3>
-                    <div className="h-[250px] w-full">
-                        {sourceStats.length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={sourceStats} layout="vertical" margin={{ top: 0, left: 20, right: 30, bottom: 0 }}>
-                                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
-                                    <XAxis type="number" hide />
-                                    <YAxis dataKey="name" type="category" width={80} tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} />
-                                    <Tooltip content={<CustomTooltip />} cursor={{ fill: 'transparent' }} />
-                                    <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={24}>
-                                        {sourceStats.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={entry.fill} />
-                                        ))}
-                                    </Bar>
-                                </BarChart>
-                            </ResponsiveContainer>
-                        ) : (
-                            <div className="h-full flex items-center justify-center text-slate-400 text-xs">Sin datos de origen.</div>
-                        )}
-                    </div>
-                </div>
-
-                {/* MARKETING CHANNELS DETAIL */}
-                <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
-                    <h3 className="text-lg font-bold text-[#364649] mb-6 flex items-center">
-                        <Megaphone className="mr-2 text-[#AA895F]" size={20} /> Rendimiento Marketing {isGlobal ? '(Global)' : '(Específico)'}
-                    </h3>
-                    <div className="space-y-4">
-                        <ChannelDetailSmall
-                            name="Marketplace"
-                            color="text-purple-600"
-                            barColor="bg-purple-500"
-                            stats={channelStats.marketplace}
-                            totalImp={funnelStats[0].value}
-                        />
-                        <ChannelDetailSmall
-                            name="Redes Sociales"
-                            color="text-pink-600"
-                            barColor="bg-pink-500"
-                            stats={channelStats.social}
-                            totalImp={funnelStats[0].value}
-                        />
-                        <ChannelDetailSmall
-                            name="Meta Ads"
-                            color="text-blue-600"
-                            barColor="bg-blue-500"
-                            stats={channelStats.ads}
-                            totalImp={funnelStats[0].value}
-                        />
-                    </div>
-                </div>
-            </div>
-
         </div>
     );
 };

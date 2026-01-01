@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { Component, useState, useMemo, useEffect, useCallback, useRef } from 'react';
 
 // ... (imports)
 
@@ -30,14 +30,17 @@ import VisitDashboard from './components/buyers/VisitDashboard';
 
 // Tracking Module
 import MetricsWrapper from './components/tracking/MetricsWrapper';
+import BusinessControl from './components/tracking/BusinessControl';
 import ObjectivesDashboard from './components/tracking/ObjectivesDashboard';
 import WeeklyDashboard from './components/tracking/WeeklyDashboard';
 import ClosingsDashboard from './components/tracking/ClosingsDashboard';
 import CalendarDashboard from './components/tracking/CalendarDashboard';
+import SuccessNotification from './components/SuccessNotification';
+import WelcomeScreen from './components/WelcomeScreen';
 
 import { supabase } from './services/supabaseClient';
 import { seedDatabase } from './services/seedData';
-import { ClientRecord, PropertyRecord, BuyerClientRecord, BuyerSearchRecord, VisitRecord, MarketingLog, ActivityRecord, ClosingRecord } from './types';
+import { ClientRecord, PropertyRecord, BuyerClientRecord, BuyerSearchRecord, VisitRecord, MarketingLog, ActivityRecord, ClosingRecord, KPIDashboardRow } from './types';
 import {
   Users,
   HelpCircle,
@@ -55,12 +58,13 @@ import {
   ChevronRight,
   Target,
   Flag,
-  Save, // Added Save Icon
+  Save,
   LayoutDashboard,
   PieChart,
   CalendarDays,
   DollarSign,
-  ShieldCheck
+  ShieldCheck,
+  AlertTriangle
 } from 'lucide-react';
 
 // --- DATA MAPPING HELPERS (Frontend <-> DB) ---
@@ -423,13 +427,64 @@ const mapClosingToDB = (c: ClosingRecord, activeUserId: string) => ({
 });
 
 
+// --- ERROR BOUNDARY COMPONENT ---
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+// Using a properly typed class component
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error(">>> [CRITICAL] ErrorBoundary caught error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex h-screen w-full items-center justify-center bg-[#E0D8CC] flex-col p-8 text-center">
+          <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl border border-red-100 max-w-lg">
+            <div className="w-20 h-20 bg-red-100 text-red-600 rounded-3xl flex items-center justify-center mx-auto mb-6">
+              <AlertTriangle size={40} strokeWidth={2} />
+            </div>
+            <h1 className="text-3xl font-black text-[#364649] mb-4 uppercase">Algo salió mal</h1>
+            <p className="text-slate-500 mb-8 font-medium">La aplicación encontró un error inesperado. Hemos sido notificados y estamos trabajando en ello.</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full bg-[#364649] text-white font-black py-4 rounded-2xl hover:bg-[#242f31] transition-all shadow-lg shadow-black/10"
+            >
+              RECARGAR APLICACIÓN
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 export default function App() {
   // Session State
   const [session, setSession] = useState<any>(null);
 
   // Navigation State
-  const [view, setView] = useState<'home' | 'dashboard' | 'form' | 'properties-list' | 'property-form' | 'buyer-clients-list' | 'buyer-client-form' | 'buyer-searches-list' | 'buyer-search-form' | 'visits-list' | 'visit-form' | 'my-week' | 'objectives' | 'closings' | 'calendar' | 'metrics-home' | 'metrics-control'>('home');
+  const [view, setView] = useState<'home' | 'dashboard' | 'form' | 'properties-list' | 'property-form' | 'buyer-clients-list' | 'buyer-client-form' | 'buyer-searches-list' | 'buyer-search-form' | 'visits-list' | 'visit-form' | 'my-week' | 'objectives' | 'closings' | 'calendar' | 'metrics-home' | 'metrics-control'>('metrics-home');
   const [viewParams, setViewParams] = useState<any>(null);
+  const [returnTo, setReturnTo] = useState<{ view: string, params?: any } | null>(null);
 
   // Auth Checking State (Prevents Login Flash)
   const [isAuthChecking, setIsAuthChecking] = useState(true);
@@ -438,8 +493,22 @@ export default function App() {
   // Navigation Group State (Collapsible)
   const [expandedGroup, setExpandedGroup] = useState<'metrics' | 'sellers' | 'buyers' | 'trakeo' | 'system' | null>(null);
 
+  // Welcome Screen State
+  const [showWelcome, setShowWelcome] = useState(false);
+
   // --- NAVIGATION HELPER (Prevents Flickering) ---
   const navigateTo = (newView: typeof view, params?: any) => {
+    // Check for returnTo in params
+    if (params?.returnTo) {
+      setReturnTo({ view: params.returnTo, params: params.returnParams });
+    } else if (!params?.isReturning) {
+      // Clear returnTo if navigating normally to a major view, 
+      // but keep it if we are just going deeper into a flow
+      if (['home', 'dashboard', 'buyer-clients-list', 'my-week'].includes(newView)) {
+        setReturnTo(null);
+      }
+    }
+
     setView(newView);
     if (params) setViewParams(params);
     else setViewParams(null); // Clear params if not provided
@@ -458,6 +527,21 @@ export default function App() {
     }
   };
 
+  const handleReturn = () => {
+    if (returnTo) {
+      const { view: rView, params: rParams } = returnTo;
+      setReturnTo(null);
+      navigateTo(rView as any, { ...rParams, isReturning: true });
+    }
+  };
+
+  // ... (rest of the file) ...
+
+  // RENDER LOGIC UPDATE (Conceptual - applying to the render part of App.tsx)
+  // I need to find where ObjectivesDashboard is rendered and pass the new props.
+  // Since I cannot do a view_file with search inside task_boundary, I will rely on reading the end of the file or searching for the render block.
+
+
   // Data State
   const [clients, setClients] = useState<ClientRecord[]>([]);
   const [properties, setProperties] = useState<PropertyRecord[]>([]);
@@ -467,9 +551,19 @@ export default function App() {
   const [marketingLogs, setMarketingLogs] = useState<MarketingLog[]>([]);
   const [activities, setActivities] = useState<ActivityRecord[]>([]); // Tracking Activities
   const [closingLogs, setClosingLogs] = useState<ClosingRecord[]>([]); // NEW: Closings
+  const [kpiData, setKpiData] = useState<KPIDashboardRow[]>([]); // NEW: KPI View Data
+  const [googleEvents, setGoogleEvents] = useState<any[]>([]); // Added for global agenda
+  const [isGoogleSynced, setIsGoogleSynced] = useState(false);
+  const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
+  const [isCheckingGoogleSync, setIsCheckingGoogleSync] = useState(false);
+
+  // Fetch KPI Data from View
+
 
   const [loading, setLoading] = useState(true);
   const [debugError, setDebugError] = useState<string | null>(null); // DEBUG: Show visible errors
+  const [showSuccessNotification, setShowSuccessNotification] = useState(false);
+  const [hasUnsavedGoals, setHasUnsavedGoals] = useState(false);
 
   // Edit & Selection State
   const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null);
@@ -495,7 +589,71 @@ export default function App() {
   const [teamUsers, setTeamUsers] = useState<any[]>([]); // List of child users
   const [selectedTeamUser, setSelectedTeamUser] = useState<string | null>(null);
 
+  // Fetch KPI Data from View using Native Fetch for consistency and RLS bypass
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    const fetchKPIs = async () => {
+      const SUPABASE_URL = 'https://whfoflccshoztjlesnhh.supabase.co';
+      const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoZm9mbGNjc2hvenRqbGVzbmhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MzUwMzEsImV4cCI6MjA4MTMxMTAzMX0.rPQdO1qCovC9WP3ttlDOArvTI7I15lg7fnOPkJseDos';
+      const token = session?.access_token || SUPABASE_KEY;
+
+      let url = `${SUPABASE_URL}/rest/v1/view_kpi_dashboard_anual?select=*`;
+
+      // Filter by user if not Mother (Global) or if specific team user selected
+      if (!isMother) {
+        url += `&user_id=eq.${session.user.id}`;
+      } else if (selectedTeamUser) {
+        url += `&user_id=eq.${selectedTeamUser}`;
+      }
+
+      try {
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log(">>> [DEBUG] fetchKPIs received data:", data?.length || 0, "rows");
+
+          if (Array.isArray(data)) {
+            // Ensure numeric types are actually numbers and handle falsy values
+            const parsed = data.map(d => ({
+              ...d,
+              anio: Number(d.anio || 0),
+              facturacion_total: Number(d.facturacion_total || 0),
+              transacciones_cerradas: Number(d.transacciones_cerradas || 0),
+              transacciones_operaciones: Number(d.transacciones_operaciones || 0),
+              volumen_total: Number(d.volumen_total || 0),
+              ticket_promedio: Number(d.ticket_promedio || 0),
+              honorarios_reales: Number(d.honorarios_reales || 0),
+              efectividad_cierre: Number(d.efectividad_cierre || 0),
+              efectividad_captacion: Number(d.efectividad_captacion || 0),
+              honorarios_promedio: Number(d.honorarios_promedio || 0),
+              productividad_actividad: Number(d.productividad_actividad || 0),
+              annual_billing: Number(d.annual_billing || 0),
+              monthly_need: Number(d.monthly_need || 0)
+            }));
+            setKpiData(parsed);
+          }
+        } else {
+          const errText = await response.text();
+          console.error('Error fetching KPIs:', response.status, errText);
+        }
+      } catch (e) {
+        console.error('Exception fetching KPIs:', e);
+      }
+    };
+    fetchKPIs();
+  }, [session, closingLogs, activities, selectedTeamUser, isMother]);
+
   // --- Financial Goals State (Shared between Objectives & Control) ---
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [isHistoricalView, setIsHistoricalView] = useState<boolean>(false);
   const [financialGoals, setFinancialGoals] = useState({
     annualBilling: 120000,
     monthlyNeed: 1500,
@@ -510,57 +668,227 @@ export default function App() {
     captationGoalQty: 2,
     captationGoalPeriod: 'month',
     manualCaptationRatio: 2.5,
-    isManualCaptationRatio: false
+    isManualCaptationRatio: false,
+    captationStartDate: new Date().toISOString().split('T')[0],
+    captationEndDate: new Date(new Date().setMonth(new Date().getMonth() + 1)).toISOString().split('T')[0]
   });
+  const [loadingGoals, setLoadingGoals] = useState(false);
+
+  // Cache for goals by year - prevents delay when switching between years
+  const goalsCacheRef = useRef<Record<number, typeof financialGoals>>({});
+  const availableYears = [2024, 2025, 2026, 2027, 2028];
+
+  // Helper function to fetch goals for a specific year
+  const fetchGoalsForYear = async (year: number, userId: string, accessToken: string) => {
+    const SUPABASE_URL = 'https://whfoflccshoztjlesnhh.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoZm9mbGNjc2hvenRqbGVzbmhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MzUwMzEsImV4cCI6MjA4MTMxMTAzMX0.rPQdO1qCovC9WP3ttlDOArvTI7I15lg7fnOPkJseDos';
+
+    const url = `${SUPABASE_URL}/rest/v1/agent_objectives?user_id=eq.${userId}&year=eq.${year}&order=created_at.desc&limit=1`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${accessToken || SUPABASE_KEY}`
+        }
+      });
+
+      if (response.ok) {
+        const records = await response.json();
+        const data = records && records.length > 0 ? records[0] : null;
+
+        if (data) {
+          return {
+            annualBilling: data.annual_billing || 120000,
+            monthlyNeed: data.monthly_need || 1500,
+            averageTicket: data.average_ticket || 4000,
+            commissionSplit: data.commission_split || 45,
+            commercialWeeks: data.commercial_weeks || 48,
+            manualRatio: data.manual_ratio || 6,
+            isManualRatio: data.is_manual_ratio || false,
+            isManualTicket: data.is_manual_ticket || false,
+            exchangeRate: data.exchange_rate || 1100,
+            captationGoalQty: data.captation_goal_qty || 2,
+            captationGoalPeriod: data.captation_goal_period || 'month',
+            manualCaptationRatio: data.manual_captation_ratio || 2.5,
+            isManualCaptationRatio: data.is_manual_captation_ratio || false,
+            captationStartDate: data.captation_start_date || new Date().toISOString().split('T')[0],
+            captationEndDate: data.captation_end_date || new Date(new Date().setMonth(new Date().getMonth() + 1)).toISOString().split('T')[0]
+          };
+        }
+      }
+    } catch (e) {
+      console.error(`[DEBUG] Error fetching goals for year ${year}:`, e);
+    }
+    return null;
+  };
+
+  // Load cache from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('goals_cache');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        goalsCacheRef.current = parsed;
+        if (parsed[selectedYear]) {
+          setFinancialGoals(parsed[selectedYear]);
+        }
+      }
+    } catch (e) {
+      console.error('[DEBUG] Error loading goals cache from localStorage:', e);
+    }
+  }, []);
+
+  // Pre-fetch ALL years
+  useEffect(() => {
+    if (!session?.user?.id) return;
+
+    const prefetchAllYears = async () => {
+      const promises = availableYears.map(async (year) => {
+        const goals = await fetchGoalsForYear(year, session.user.id, session.access_token);
+        if (goals) {
+          goalsCacheRef.current[year] = goals;
+        }
+      });
+      await Promise.all(promises);
+
+      try {
+        localStorage.setItem('goals_cache', JSON.stringify(goalsCacheRef.current));
+      } catch (e) {
+        console.error('[DEBUG] Error saving goals cache to localStorage:', e);
+      }
+
+      if (goalsCacheRef.current[selectedYear]) {
+        setFinancialGoals(goalsCacheRef.current[selectedYear]);
+      }
+    };
+
+    prefetchAllYears();
+  }, [session]);
+
+  // Load Goals for Selected Year
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    if (goalsCacheRef.current[selectedYear]) {
+      setFinancialGoals(goalsCacheRef.current[selectedYear]);
+      return;
+    }
+    const fetchGoals = async () => {
+      const goals = await fetchGoalsForYear(selectedYear, session.user.id, session.access_token);
+      if (goals) {
+        goalsCacheRef.current[selectedYear] = goals;
+        setFinancialGoals(goals);
+      }
+    };
+    fetchGoals();
+  }, [session, selectedYear]);
 
   const handleUpdateFinancialGoals = useCallback((newGoals: Partial<typeof financialGoals>) => {
     setFinancialGoals(prev => {
-      const updated = { ...prev, ...newGoals };
-
-      // Save to Supabase (Fire and Forget)
-      if (session?.user?.id) {
-        supabase.from('user_settings').upsert({
-          user_id: session.user.id,
-          annual_billing: updated.annualBilling,
-          monthly_need: updated.monthlyNeed,
-          average_ticket: updated.averageTicket,
-          commission_split: updated.commissionSplit,
-          commercial_weeks: updated.commercialWeeks,
-          manual_ratio: updated.manualRatio,
-          is_manual_ratio: updated.isManualRatio,
-          is_manual_ticket: updated.isManualTicket,
-          exchange_rate: updated.exchangeRate,
-          updated_at: new Date()
-        }).then(({ error }) => {
-          if (error) console.error("Error saving goals (fire and forget):", error);
-        });
-      }
-      return updated;
+      return { ...prev, ...newGoals };
     });
-  }, [session]);
+    setHasUnsavedGoals(true);
+  }, []);
 
   const handleSaveFinancialGoals = useCallback(async (goalsToSave: typeof financialGoals) => {
-    if (!session?.user?.id) return;
+    if (!session?.user?.id) {
+      alert("Error: No estás logueado.");
+      return;
+    }
 
     try {
-      // Save entire object to 'goals' JSONB column for flexibility
-      const { error } = await supabase.from('user_settings').upsert({
+      const payload = {
         user_id: session.user.id,
-        goals: goalsToSave,
-        updated_at: new Date()
+        year: selectedYear,
+        annual_billing: goalsToSave.annualBilling,
+        monthly_need: goalsToSave.monthlyNeed,
+        average_ticket: goalsToSave.averageTicket,
+        commission_split: goalsToSave.commissionSplit,
+        commercial_weeks: goalsToSave.commercialWeeks,
+        exchange_rate: goalsToSave.exchangeRate,
+        manual_ratio: goalsToSave.manualRatio,
+        is_manual_ratio: goalsToSave.isManualRatio,
+        is_manual_ticket: goalsToSave.isManualTicket,
+        captation_goal_qty: goalsToSave.captationGoalQty,
+        captation_goal_period: goalsToSave.captationGoalPeriod,
+        manual_captation_ratio: goalsToSave.manualCaptationRatio,
+        is_manual_captation_ratio: goalsToSave.isManualCaptationRatio,
+        captation_start_date: goalsToSave.captationStartDate,
+        captation_end_date: goalsToSave.captationEndDate,
+        created_at: new Date().toISOString()
+      };
+
+      const SUPABASE_URL = 'https://whfoflccshoztjlesnhh.supabase.co';
+      const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoZm9mbGNjc2hvenRqbGVzbmhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MzUwMzEsImV4cCI6MjA4MTMxMTAzMX0.rPQdO1qCovC9WP3ttlDOArvTI7I15lg7fnOPkJseDos';
+
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/agent_objectives`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${session.access_token || SUPABASE_KEY}`,
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify(payload)
       });
 
-      if (error) {
-        console.error("Error saving financial goals:", error);
-        alert("Error al guardar la planificación: " + error.message);
+      if (response.ok) {
+        const data = await response.json();
+        goalsCacheRef.current[selectedYear] = goalsToSave;
+        try {
+          localStorage.setItem('goals_cache', JSON.stringify(goalsCacheRef.current));
+        } catch (e) {
+          console.error("Error updating local cache:", e);
+        }
+        setShowSuccessNotification(true);
+        setHasUnsavedGoals(false);
       } else {
-        alert("¡Planificación guardada correctamente!");
+        const errorText = await response.text();
+        alert(`Error al guardar: ${errorText}`);
       }
-    } catch (e) {
-      console.error("Unexpected error saving financial goals:", e);
-      alert("Ocurrió un error inesperado al guardar la planificación.");
+    } catch (e: any) {
+      console.error("Exception saving goals:", e);
+      alert(`Error inesperado: ${e.message}`);
     }
-  }, [session]);
+  }, [session, selectedYear]);
+
+
+
+  // --- MEMOIZED DATA FOR DASHBOARDS ---
+  const objectivesData = useMemo(() => {
+    // REFACTORED: Use kpiData for aggregations
+    const totalVolume = kpiData.reduce((acc, row) => acc + (row.volumen_total || 0), 0);
+    const totalSides = kpiData.reduce((acc, row) => acc + (row.transacciones_cerradas || 0), 0);
+    const totalOperations = kpiData.reduce((acc, row) => acc + (row.transacciones_operaciones || 0), 0);
+    // 1. Historical Average Ticket (Global) - BASED ON SALE PRICE VOLUME
+    const historicalAverageTicket = totalOperations > 0 ? totalVolume / totalOperations : 0;
+
+    const weeksOfData = new Set(activities.map(a => {
+      const d = new Date(a.date);
+      const onejan = new Date(d.getFullYear(), 0, 1);
+      const week = Math.ceil((((d.getTime() - onejan.getTime()) / 86400000) + onejan.getDay() + 1) / 7);
+      return `${d.getFullYear()}-${week}`;
+    })).size;
+
+    const totalClosings = totalSides;
+
+    // 2. Captation Stats (Global flow)
+    const totalPL = kpiData.reduce((acc, row) => acc + (row.total_pl || 0), 0);
+    const totalCaptaciones = kpiData.reduce((acc, row) => acc + (row.total_captaciones || 0), 0);
+
+    const captationStats = {
+      preListings: totalPL,
+      listings: totalCaptaciones
+    };
+
+    return { historicalAverageTicket, weeksOfData, totalClosings, captationStats };
+  }, [kpiData, activities]); // activities still needed for weeksOfData
+
+  const handleNavigateCallback = useCallback((view: any, params?: any) => {
+    navigateTo(view, params);
+  }, []);
 
   // --- Auth & Session Management ---
   const checkUserRole = async (userId: string, currentSession?: any) => {
@@ -606,14 +934,25 @@ export default function App() {
   }, [activities]);
 
   // 3. Historical Ratio (All Time Data - Stability)
-  const historicalRatio = useMemo(() => {
-    if (closingLogs.length === 0) return 0;
+  // Requires: minimum 4 months of data (~17 weeks) AND 5 closings
+  // Standard default: 6:1 (6 PL-PB per closing = 16.67% closing rate)
+  const MIN_WEEKS_FOR_RATIO = 17; // ~4 months
+  const MIN_CLOSINGS_FOR_RATIO = 5;
+  const STANDARD_RATIO = 6; // 6:1 standard
 
+  const historicalRatio = useMemo(() => {
     const allTimePLPB = activities.filter(a => a.type === 'pre_listing' || a.type === 'pre_buying').length;
     const allTimeClosings = closingLogs.length;
 
-    return allTimeClosings > 0 ? allTimePLPB / allTimeClosings : 0;
-  }, [activities, closingLogs]);
+    // Check if we have enough data for auto-calculation
+    const hasEnoughData = objectivesData.weeksOfData >= MIN_WEEKS_FOR_RATIO && allTimeClosings >= MIN_CLOSINGS_FOR_RATIO;
+
+    if (hasEnoughData && allTimeClosings > 0 && allTimePLPB > 0) {
+      return allTimePLPB / allTimeClosings; // Auto-calculated ratio
+    }
+
+    return STANDARD_RATIO; // Standard 6:1 when insufficient data
+  }, [activities, closingLogs, objectivesData.weeksOfData]);
 
   // 4. Pipeline Value ("Latent Revenue" - Lag Solution)
   const pipelineValue = useMemo(() => {
@@ -640,7 +979,7 @@ export default function App() {
 
   // --- Initial Data Load ---
   const hasLoadedOnce = React.useRef(false);
-  const loadAllData = async (activeUserId?: string, isMotherOverride?: boolean, teamUserOverride?: string | null) => {
+  const loadAllData = async (activeUserId?: string, isMotherOverride?: boolean, teamUserOverride?: string | null, tokenOverride?: string) => {
     const uid = activeUserId || session?.user?.id;
     if (!uid) return;
 
@@ -658,59 +997,90 @@ export default function App() {
       const SUPABASE_URL = 'https://whfoflccshoztjlesnhh.supabase.co';
       const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoZm9mbGNjc2hvenRqbGVzbmhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MzUwMzEsImV4cCI6MjA4MTMxMTAzMX0.rPQdO1qCovC9WP3ttlDOArvTI7I15lg7fnOPkJseDos';
 
-      const closingsPromise = fetch(`${SUPABASE_URL}/rest/v1/closing_logs?select=*`, {
+      const token = tokenOverride || session?.access_token || SUPABASE_KEY;
+      console.log(">>> [DEBUG] loadAllData: using token:", token ? token.slice(0, 20) + '...' : 'NONE');
+      console.log(">>> [DEBUG] loadAllData: activeUserId:", uid);
+
+      const closingsPromise = fetch(`${SUPABASE_URL}/rest/v1/closing_logs?select=*&order=date.desc`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
           'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${session?.access_token || SUPABASE_KEY}`
+          'Authorization': `Bearer ${token}`
         }
-      }).then(r => r.json());
+      }).then(async r => {
+        console.log(">>> [DEBUG] Fetch status:", r.status);
+        const data = await r.json();
+        console.log(">>> [DEBUG] Fetch data length:", Array.isArray(data) ? data.length : 'Not Array');
+        return data;
+      });
 
-      const vitalResults = await Promise.all([
-        supabase.from('user_settings').select('*').eq('user_id', uid).maybeSingle(),
-        closingsPromise,
-        supabase.from('visits').select('*'),
-        supabase.from('activities').select('*')
-      ]);
+      console.log(">>> [DEBUG] Starting independent fetches...");
 
-      const [settings, closingsData, v, act] = vitalResults;
+      // 1. CLOSINGS (Critical - Native Fetch)
+      closingsPromise.then(closingsData => {
+        if (Array.isArray(closingsData) && closingsData.length > 0) {
+          console.log(`>>> LOADING CLOSINGS: Found ${closingsData.length} records.`);
+          const mapped = closingsData.map((x: any) => {
+            try { return mapClosingFromDB(x); }
+            catch (err) { console.error(">>> ERROR MAPPING CLOSING:", x, err); return null; }
+          }).filter((x): x is ClosingRecord => x !== null);
 
-      // --- PROCESS STAGE 1 DATA ---
-      if (settings.data) {
-        setFinancialGoals(prev => ({
-          ...prev,
-          annualBilling: settings.data.annual_billing ?? prev.annualBilling,
-          monthlyNeed: settings.data.monthly_need ?? prev.monthlyNeed,
-          averageTicket: settings.data.average_ticket ?? prev.averageTicket,
-          commissionSplit: settings.data.commission_split ?? prev.commissionSplit,
-          commercialWeeks: settings.data.commercial_weeks ?? prev.commercialWeeks,
-          manualRatio: settings.data.manual_ratio ?? prev.manualRatio,
-          isManualRatio: settings.data.is_manual_ratio ?? prev.isManualRatio,
-          isManualTicket: settings.data.is_manual_ticket ?? prev.isManualTicket,
-          exchangeRate: settings.data.exchange_rate ?? 1000
-        }));
-      }
+          console.log(`>>> LOADING CLOSINGS: Successfully mapped ${mapped.length} records.`);
+          if (mapped.length > 0) setClosingLogs(mapped);
+        } else {
+          console.log(">>> CLOSINGS - No data or empty array:", closingsData);
+        }
+      }).catch(err => console.error(">>> ERROR FETCHING CLOSINGS:", err));
 
+      // 2. SETTINGS (Supabase)
+      supabase.from('user_settings').select('*').eq('user_id', uid).maybeSingle().then(({ data: settingsData, error }) => {
+        if (settingsData) {
+          setFinancialGoals(prev => ({
+            ...prev,
+            annualBilling: settingsData.annual_billing ?? prev.annualBilling,
+            monthlyNeed: settingsData.monthly_need ?? prev.monthlyNeed,
+            averageTicket: settingsData.average_ticket ?? prev.averageTicket,
+            commissionSplit: settingsData.commission_split ?? prev.commissionSplit,
+            commercialWeeks: settingsData.commercial_weeks ?? prev.commercialWeeks,
+            manualRatio: settingsData.manual_ratio ?? prev.manualRatio,
+            isManualRatio: settingsData.is_manual_ratio ?? prev.isManualRatio,
+            isManualTicket: settingsData.is_manual_ticket ?? prev.isManualTicket,
+            exchangeRate: settingsData.exchange_rate ?? 1000
+          }));
+        }
+        if (error) console.error(">>> ERROR LOADING SETTINGS:", error);
+      });
+
+      // 3. VISITS & ACTIVITIES
       const teamUserFilter = isMom && teamUser;
 
-      // Process closings data (from native fetch - already an array)
-      if (Array.isArray(closingsData) && closingsData.length > 0) {
-        console.log(">>> LOADING CLOSINGS - Raw data:", closingsData);
-        const mapped = closingsData.filter((x: any) => !!x).map(mapClosingFromDB);
-        console.log(">>> LOADING CLOSINGS - Mapped data:", mapped);
-        setClosingLogs(mapped);
-      } else {
-        console.log(">>> CLOSINGS - No data or empty array:", closingsData);
-      }
-      if (v.data) {
-        const mapped = v.data.filter(x => !!x).map(mapVisitFromDB);
-        setVisits(teamUserFilter ? mapped.filter(x => x.userId === teamUser) : mapped);
-      }
-      if (act.data) {
-        const mapped = act.data.filter(x => !!x).map(mapActivityFromDB);
-        setActivities(teamUserFilter ? mapped.filter(x => x.userId === teamUser) : mapped);
-      }
+      supabase.from('visits').select('*').then(({ data, error }) => {
+        if (data) {
+          const mapped = data.filter(x => !!x).map(mapVisitFromDB);
+          setVisits(teamUserFilter ? mapped.filter(x => x.userId === teamUser) : mapped);
+        }
+        if (error) console.error(">>> ERROR LOADING VISITS:", error);
+      });
+
+      // 4. ACTIVITIES (Native Fetch - same pattern as closings for RLS compatibility)
+      fetch(`${SUPABASE_URL}/rest/v1/activities?select=*&order=date.desc`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${token}`
+        }
+      }).then(async r => {
+        const data = await r.json();
+        if (Array.isArray(data) && data.length > 0) {
+          console.log(`>>> LOADING ACTIVITIES: Found ${data.length} records.`);
+          const mapped = data.filter((x: any) => !!x).map(mapActivityFromDB);
+          setActivities(teamUserFilter ? mapped.filter(x => x.userId === teamUser) : mapped);
+        } else {
+          console.log(">>> ACTIVITIES - No data or empty array:", data);
+        }
+      }).catch(err => console.error(">>> ERROR FETCHING ACTIVITIES:", err));
 
       // 🚀 UNBLOCK UI NOW (Progressive Loading)
       // The user sees the Dashboard with KPIs immediately.
@@ -718,6 +1088,11 @@ export default function App() {
         setLoading(false);
         setIsAuthChecking(false); // CRITICAL: Clear strict auth blocking
         hasLoadedOnce.current = true;
+        // Show welcome screen on first load of this browser session
+        if (!sessionStorage.getItem('welcomeShown')) {
+          setShowWelcome(true);
+          sessionStorage.setItem('welcomeShown', 'true');
+        }
       }
       setIsDataReady(true);
 
@@ -770,6 +1145,79 @@ export default function App() {
     }
   };
 
+
+
+  const fetchGoogleEvents = async (currentSession: any) => {
+    if (!currentSession?.user?.id) return;
+    console.log(">>> [App] fetchGoogleEvents started for user:", currentSession.user.id);
+    setIsCheckingGoogleSync(true);
+
+    try {
+      // 1. Get token from DB
+      const { data: integ } = await supabase
+        .from('user_integrations')
+        .select('access_token, refresh_token')
+        .eq('user_id', currentSession.user.id)
+        .eq('provider', 'google_calendar')
+        .single();
+
+      let token = integ?.access_token;
+      if (!token) {
+        console.log(">>> [App] No Google token found in user_integrations");
+        setIsGoogleSynced(false);
+        return;
+      }
+
+      console.log(">>> [App] Token found, setting states and fetching events...");
+      setGoogleAccessToken(token);
+      setIsGoogleSynced(true);
+
+      // 2. Fetch events for current week
+      const now = new Date();
+      const dayOfWeek = now.getDay();
+      const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() + mondayOffset);
+      startOfWeek.setHours(0, 0, 0, 0);
+
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 7);
+
+      const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${startOfWeek.toISOString()}&timeMax=${endOfWeek.toISOString()}&singleEvents=true&orderBy=startTime`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      console.log(">>> [App] Google API response status:", response.status);
+
+      if (response.status === 401) {
+        console.log(">>> [App] Token expired (401), attempting global refresh...");
+        setIsGoogleSynced(false);
+        // Attempt refresh via Edge Function
+        const { data: refreshData } = await supabase.functions.invoke('refresh-google-token');
+        console.log(">>> [App] Refresh result:", refreshData ? "success" : "failure");
+        if (refreshData?.access_token) {
+          setGoogleAccessToken(refreshData.access_token);
+          setIsGoogleSynced(true);
+          const retryResponse = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${startOfWeek.toISOString()}&timeMax=${endOfWeek.toISOString()}&singleEvents=true&orderBy=startTime`, {
+            headers: { 'Authorization': `Bearer ${refreshData.access_token}` }
+          });
+          if (retryResponse.ok) {
+            const data = await retryResponse.json();
+            setGoogleEvents(data.items || []);
+          }
+        }
+      } else if (response.ok) {
+        const data = await response.json();
+        console.log(">>> [App] Events fetched successfully:", data.items?.length || 0);
+        setGoogleEvents(data.items || []);
+      }
+    } catch (error) {
+      console.error("Error fetching Google Events for Home:", error);
+    } finally {
+      setIsCheckingGoogleSync(false);
+    }
+  };
+
   // --- Sequenced Initialization ---
   const initializeUser = async (currentSession: any) => {
     if (!currentSession?.user) {
@@ -779,7 +1227,9 @@ export default function App() {
 
     try {
       const isMom = await checkUserRole(currentSession.user.id, currentSession);
-      await loadAllData(currentSession.user.id, isMom, selectedTeamUser);
+      await loadAllData(currentSession.user.id, isMom, selectedTeamUser, currentSession.access_token);
+      // Fetch Google Events for the dashboard/home view
+      fetchGoogleEvents(currentSession);
     } catch (error) {
       console.error("Initialization Failed", error);
     } finally {
@@ -795,6 +1245,21 @@ export default function App() {
     // 1. Initial Session Check (Critical for Reloads)
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+
+      // Check if we just returned from a Google OAuth flow
+      // We look for tab=calendar in query params OR in the hash (Supabase sometimes mixes them)
+      const urlParams = new URLSearchParams(window.location.search);
+      const hashParams = new URLSearchParams(window.location.hash.slice(1)); // remove #
+
+      if (urlParams.get('tab') === 'calendar' || hashParams.get('tab') === 'calendar') {
+        console.log(">>> Redirect detection: Found tab=calendar, navigating...");
+        setView('calendar');
+        setExpandedGroup('trakeo');
+        // Clean up the URL
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, '', newUrl);
+      }
+
       if (session && !hasInitialized.current) {
         hasInitialized.current = true;
         initializeUser(session);
@@ -1020,14 +1485,69 @@ export default function App() {
 
   // --- Handlers (Activities - My Week) ---
   const handleSaveActivity = async (act: ActivityRecord) => {
-    if (!session?.user) return;
+    if (!session?.user) { alert("ERROR: No hay sesión de usuario."); return; }
+
+    // Optimistic update
     setActivities(prev => [...prev, act]);
-    try { await supabase.from('activities').upsert(mapActivityToDB(act, session.user.id)); } catch (e) { console.error(e); }
+
+    try {
+      const SUPABASE_URL = 'https://whfoflccshoztjlesnhh.supabase.co';
+      const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoZm9mbGNjc2hvenRqbGVzbmhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MzUwMzEsImV4cCI6MjA4MTMxMTAzMX0.rPQdO1qCovC9WP3ttlDOArvTI7I15lg7fnOPkJseDos';
+
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/activities`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${session?.access_token || SUPABASE_KEY}`,
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify(mapActivityToDB(act, session.user.id))
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      console.log(">>> Actividad guardada exitosamente");
+    } catch (e: any) {
+      console.error(">>> ERROR GUARDANDO ACTIVIDAD:", e);
+      // Revert optimistic update
+      setActivities(prev => prev.filter(a => a.id !== act.id));
+      alert("Error guardando actividad: " + (e.message || JSON.stringify(e)));
+    }
   };
 
   const handleDeleteActivity = async (id: string) => {
+    // Optimistic update
+    const previousActivities = [...activities];
     setActivities(prev => prev.filter(a => a.id !== id));
-    try { await supabase.from('activities').delete().eq('id', id); } catch (e) { console.error(e); }
+
+    try {
+      const SUPABASE_URL = 'https://whfoflccshoztjlesnhh.supabase.co';
+      const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoZm9mbGNjc2hvenRqbGVzbmhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MzUwMzEsImV4cCI6MjA4MTMxMTAzMX0.rPQdO1qCovC9WP3ttlDOArvTI7I15lg7fnOPkJseDos';
+
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/activities?id=eq.${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${session?.access_token || SUPABASE_KEY}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      console.log(">>> Actividad eliminada exitosamente");
+    } catch (e: any) {
+      console.error(">>> ERROR ELIMINANDO ACTIVIDAD:", e);
+      // Revert optimistic update
+      setActivities(previousActivities);
+      alert("Error eliminando actividad: " + (e.message || JSON.stringify(e)));
+    }
   };
 
   // --- Handlers (Closings) ---
@@ -1180,48 +1700,196 @@ export default function App() {
     });
   }, [clients, searchQuery]);
 
+  // --- HELPER: NORMALIZE CURRENCY ---
+  const normalizeToUSD = (amount: number, currency: string) => {
+    const rate = financialGoals.exchangeRate || 1000;
+    if (currency === 'USD') return amount;
+    if (currency === 'ARS') return amount / rate;
+    return amount;
+  };
+
+  const isToday = (date: Date) => {
+    const today = new Date();
+    return date.getDate() === today.getDate() &&
+      date.getMonth() === today.getMonth() &&
+      date.getFullYear() === today.getFullYear();
+  };
+
   // Render content
   const renderContent = () => {
+    // Pipeline Value: Consolidated realistic projection
+    // 1. Portfolio: 40% of potential billing (3% of price) for available/reserved properties
+    const inventoryPipeline = properties
+      .filter(p => p.status === 'disponible' || p.status === 'reservada')
+      .reduce((sum, p) => {
+        const priceUSD = normalizeToUSD(p.price || 0, p.currency);
+        return sum + (priceUSD * 0.03 * 0.40);
+      }, 0);
+
+    // 2. Buyers: 10% of potential billing (3% of max budget) for active searches
+    const buyerPipeline = buyerSearches
+      .filter(s => s.status === 'activo')
+      .reduce((sum, s) => {
+        const budgetUSD = normalizeToUSD(s.searchProfile.budget.max || 0, s.searchProfile.budget.currency);
+        return sum + (budgetUSD * 0.03 * 0.10);
+      }, 0);
+
+    const pipelineValue = inventoryPipeline + buyerPipeline;
+
     switch (view) {
       // HOME
       case 'home':
       case 'metrics-home':
-      case 'metrics-control':
-        const historicalAvgTicket = closingLogs.length > 0
-          ? closingLogs.reduce((sum, log) => sum + log.salePrice, 0) / closingLogs.length
-          : 0;
+        // === UNIFIED METRICS CALCULATION (DB VIEW SOURCE) ===
+
+        // --- 1. GET DATA FROM VIEW ---
+        // --- 1. GET DATA FROM VIEW ---
+        const getKpiStats = () => {
+          // Filter rows based on view mode
+          const relevantRows = isHistoricalView
+            ? kpiData
+            : kpiData.filter(d => d.anio === selectedYear);
+
+          // Sum up metrics (Safe for Global/Team views)
+          const totalRev = relevantRows.reduce((s, r) => s + (r.facturacion_total || 0), 0);
+          const totalSides = relevantRows.reduce((s, r) => s + (r.transacciones_cerradas || 0), 0);
+          const totalOperations = relevantRows.reduce((s, r) => s + (r.transacciones_operaciones || 0), 0);
+          const totalVolume = relevantRows.reduce((s, r) => s + (r.volumen_total || 0), 0);
+          const totalPL = relevantRows.reduce((s, r) => s + (r.total_pl || 0), 0);
+          const totalFees = relevantRows.reduce((s, r) => s + (r.honorarios_reales || 0), 0);
+          const totalActivities = relevantRows.reduce((s, r) => s + (r.total_reuniones_verdes || 0), 0);
+
+          return {
+            billing: totalRev,
+            sides: totalSides,
+            pl: totalPL,
+            fees: totalFees,
+            avgTicket: totalOperations > 0 ? totalVolume / totalOperations : 0,
+            ratio: totalSides > 0 ? totalPL / totalSides : 0,
+            honorariosPromedio: totalSides > 0 ? totalFees / totalSides : 0,
+            productividadActividad: totalActivities > 0 ? totalFees / totalActivities : 0,
+            isDataReliable: (() => {
+              try {
+                const acts = isHistoricalView ? activities : activities.filter(a => {
+                  if (!a.date) return false;
+                  const d = new Date(a.date);
+                  return !isNaN(d.getTime()) && d.getFullYear() === selectedYear;
+                });
+
+                const months = new Set<string>();
+                acts.forEach(a => {
+                  if (!a.date) return;
+                  const d = new Date(a.date);
+                  if (!isNaN(d.getTime())) {
+                    months.add(`${d.getFullYear()}-${d.getMonth() + 1}`);
+                  }
+                });
+
+                return months.size >= 4 && totalSides >= 5;
+              } catch (e) {
+                console.error("Error calculating data reliability:", e);
+                return false;
+              }
+            })()
+          };
+        };
+        const kpiStats = getKpiStats();
+
+        // --- 2. WEEKLY STATS (CURRENT REAL TIME) ---
+        const hmToday = new Date();
+        const hmStartOfWeek = new Date(hmToday);
+        hmStartOfWeek.setDate(hmToday.getDate() - (hmToday.getDay() || 7) + 1); // Monday
+        hmStartOfWeek.setHours(0, 0, 0, 0);
+
+        const hmWeeklyPLDone = activities.filter(a => {
+          const actDate = new Date(a.date);
+          return actDate >= hmStartOfWeek && (a.type === 'pre_listing' || a.type === 'pre_buying');
+        }).length;
+        const hmWeeklyGreenDone = activities.filter(a => {
+          const actDate = new Date(a.date);
+          return actDate >= hmStartOfWeek && a.type === 'reunion_verde';
+        }).length;
+
+        // --- 3. TARGETS ---
+        const hmEffectiveTicket = financialGoals.isManualTicket
+          ? (financialGoals.averageTicket || 4000)
+          : (objectivesData.historicalAverageTicket || 4000);
+
+        const hmAnnBillingTarget = financialGoals.annualBilling || 40000;
+        const hmCommPerSale = hmEffectiveTicket * 0.03;
+        const hmTxNeeded = hmCommPerSale > 0 ? hmAnnBillingTarget / hmCommPerSale : 0;
+        const hmPocketFeesTarget = hmAnnBillingTarget * ((financialGoals.commissionSplit || 45) / 100);
+
+        const hmEffectiveRatio = financialGoals.isManualRatio
+          ? (financialGoals.manualRatio || 6)
+          : (kpiStats.ratio || 6);
+
+        const hmWeeks = financialGoals.commercialWeeks || 48;
+        const hmWeeklyPLTarget = hmWeeks > 0 ? (hmTxNeeded * hmEffectiveRatio) / hmWeeks : 0;
+
+        // --- 4. DISPLAY STRINGS ---
+        const hmHasData = kpiStats.pl > 0 && kpiStats.sides > 0;
+        let hmClosingRate: string;
+        let hmRatioDisplay: string;
+        let hmIsStandard = false;
+
+        if (hmHasData) {
+          hmClosingRate = ((kpiStats.sides / kpiStats.pl) * 100).toFixed(1);
+          hmRatioDisplay = `${(kpiStats.pl / kpiStats.sides).toFixed(1)}:1`;
+        } else {
+          hmClosingRate = '16.7';
+          hmRatioDisplay = '6.0:1 (estándar)';
+          hmIsStandard = true;
+        }
+
+        const hmDisplayMetrics = {
+          transactionsNeeded: hmTxNeeded,
+          transactionsDone: kpiStats.sides,
+          greenMeetingsTarget: 15,
+          greenMeetingsDone: hmWeeklyGreenDone, // Real time
+          pocketFees: kpiStats.fees,
+          pocketFeesTarget: hmPocketFeesTarget,
+          criticalNumberTarget: hmWeeklyPLTarget,
+          criticalNumberDone: hmWeeklyPLDone, // Real time
+          activeProperties: properties.filter(p => p.status === 'disponible' || p.status === 'reservada').length,
+          honorariosPromedio: kpiStats.honorariosPromedio,
+          productividadActividad: kpiStats.productividadActividad,
+          isDataReliable: kpiStats.isDataReliable
+        };
 
         return <MetricsWrapper
           selectedTab={view === 'metrics-home' ? 'home' : 'control'}
           financialGoals={financialGoals}
           onUpdateGoals={handleUpdateFinancialGoals}
-          // Data Props
-          currentBilling={currentTotalBilling}
-          currentActivities={currentTotalPLPB}
-          currentRatio={historicalRatio}
+          currentBilling={kpiStats.billing}
+          currentActivities={kpiStats.pl}
+          currentRatio={kpiStats.ratio}
           pipelineValue={pipelineValue}
-          totalSides={currentTotalSides} // Passing sides count
-          weeksOfData={new Set(activities.map(a => {
-            const d = new Date(a.date);
-            const onejan = new Date(d.getFullYear(), 0, 1);
-            const week = Math.ceil((((d.getTime() - onejan.getTime()) / 86400000) + onejan.getDay() + 1) / 7);
-            return `${d.getFullYear()}-${week}`;
-          })).size}
-          totalClosings={closingLogs.length}
-          captationStats={{
-            preListings: activities.filter(a => a.type === 'pre_listing').length,
-            listings: properties.length
-          }}
-          historicalAverageTicket={historicalAvgTicket}
+          totalSides={kpiStats.sides}
+          weeksOfData={objectivesData.weeksOfData}
+          totalClosings={objectivesData.totalClosings}
+          captationStats={objectivesData.captationStats}
+          historicalAverageTicket={objectivesData.historicalAverageTicket}
           properties={properties}
           activities={activities}
           visits={visits}
-          onNavigate={(view, params) => {
-            navigateTo(view, params);
-          }}
+          closingLogs={closingLogs}
+          onNavigate={(view, params) => navigateTo(view, params)}
           clients={clients}
           buyers={buyerClients}
           marketingLogs={marketingLogs}
+          availableYears={availableYears}
+          currentYear={selectedYear}
+          onSelectYear={setSelectedYear}
+          isHistoricalView={isHistoricalView}
+          onToggleHistorical={setIsHistoricalView}
+          displayMetrics={hmDisplayMetrics}
+          displayBilling={kpiStats.billing}
+          displayTicket={kpiStats.avgTicket}
+          displayClosingRate={hmClosingRate}
+          displayClosingRatioDisplay={hmRatioDisplay}
+          displayIsStandardRate={hmIsStandard}
+          googleEvents={googleEvents}
         />;
 
       // SELLERS
@@ -1250,6 +1918,7 @@ export default function App() {
             visits={visits}
             properties={properties}
             searches={buyerSearches}
+            closingLogs={closingLogs}
             initialAction={viewParams?.action}
             onSaveActivity={handleSaveActivity}
             onDeleteActivity={handleDeleteActivity}
@@ -1259,49 +1928,198 @@ export default function App() {
             onSaveBuyer={handleSaveBuyerClient}
             onSaveSearch={handleSaveSearch}
             onSaveVisit={handleSaveVisit}
+            onSaveClosing={handleSaveClosing}
+            onDeleteClosing={handleDeleteClosing}
+            onNavigateTo={navigateTo}
           />
         );
-      case 'objectives':
-        // Calculate Historical Average Ticket
-        const historicalAverageTicket = closingLogs.length > 0
-          ? closingLogs.reduce((sum, log) => sum + log.salePrice, 0) / closingLogs.length
-          : 0;
+      case 'metrics-control':
+        // --- 1. GET DATA FROM VIEW ---
+        const getControlStats = () => {
+          const relevantRows = isHistoricalView
+            ? kpiData
+            : kpiData.filter(d => d.anio === selectedYear);
 
-        const weeksOfData = new Set(activities.map(a => {
-          const d = new Date(a.date); // a.date is YYYY-MM-DD
-          // Simple unique week identifier: Year-WeekNumber
-          const onejan = new Date(d.getFullYear(), 0, 1);
-          const week = Math.ceil((((d.getTime() - onejan.getTime()) / 86400000) + onejan.getDay() + 1) / 7);
-          return `${d.getFullYear()}-${week}`;
-        })).size;
+          const totalRev = relevantRows.reduce((s, r) => s + (r.facturacion_total || 0), 0);
+          const totalSides = relevantRows.reduce((s, r) => s + (r.transacciones_cerradas || 0), 0);
+          const totalOperations = relevantRows.reduce((s, r) => s + (r.transacciones_operaciones || 0), 0);
+          const totalVolume = relevantRows.reduce((s, r) => s + (r.volumen_total || 0), 0);
+          const totalPL = relevantRows.reduce((s, r) => s + (r.total_pl || 0), 0);
+          const totalFees = relevantRows.reduce((s, r) => s + (r.honorarios_reales || 0), 0);
+          const totalActivities = relevantRows.reduce((s, r) => s + (r.total_reuniones_verdes || 0), 0);
 
-        const totalClosings = closingLogs.length;
+          return {
+            billing: totalRev,
+            sides: totalSides,
+            pl: totalPL,
+            fees: totalFees,
+            avgTicket: totalOperations > 0 ? totalVolume / totalOperations : 0,
+            ratio: totalSides > 0 ? totalPL / totalSides : 0,
+            honorariosPromedio: totalSides > 0 ? totalFees / totalSides : 0,
+            productividadActividad: totalActivities > 0 ? totalFees / totalActivities : 0,
+            isDataReliable: (() => {
+              try {
+                const acts = isHistoricalView ? activities : activities.filter(a => {
+                  if (!a.date) return false;
+                  const d = new Date(a.date);
+                  return !isNaN(d.getTime()) && d.getFullYear() === selectedYear;
+                });
 
-        const captationStats = {
-          preListings: activities.filter(a => a.type === 'pre_listing').length,
-          listings: properties.length // Using total properties as proxy for successful captations
+                const months = new Set<string>();
+                acts.forEach(a => {
+                  if (!a.date) return;
+                  const d = new Date(a.date);
+                  if (!isNaN(d.getTime())) {
+                    months.add(`${d.getFullYear()}-${d.getMonth() + 1}`);
+                  }
+                });
+
+                return months.size >= 4 && totalSides >= 5;
+              } catch (e) {
+                console.error("Error calculating data reliability:", e);
+                return false;
+              }
+            })()
+          };
+        };
+        const mcStats = getControlStats();
+
+        // --- 2. WEEKLY STATS (CURRENT REAL TIME) ---
+        const mcToday = new Date();
+        const mcStartOfWeek = new Date(mcToday);
+        mcStartOfWeek.setDate(mcToday.getDate() - (mcToday.getDay() || 7) + 1);
+        mcStartOfWeek.setHours(0, 0, 0, 0);
+
+        const mcWeeklyPLDone = activities.filter(a => {
+          const actDate = new Date(a.date);
+          return actDate >= mcStartOfWeek && (a.type === 'pre_listing' || a.type === 'pre_buying');
+        }).length;
+        const mcWeeklyGreenDone = activities.filter(a => {
+          const actDate = new Date(a.date);
+          return actDate >= mcStartOfWeek && a.type === 'reunion_verde';
+        }).length;
+
+        // --- 3. TARGETS ---
+        const mcEffectiveTicket = financialGoals.isManualTicket
+          ? (financialGoals.averageTicket || 4000)
+          : (objectivesData.historicalAverageTicket || 4000);
+
+        const mcAnnBillingTarget = financialGoals.annualBilling || 40000;
+        const mcCommPerSale = mcEffectiveTicket * 0.03;
+        const mcTxNeeded = mcCommPerSale > 0 ? mcAnnBillingTarget / mcCommPerSale : 0;
+        const mcPocketFeesTarget = mcAnnBillingTarget * ((financialGoals.commissionSplit || 45) / 100);
+
+        const mcEffectiveRatio = financialGoals.isManualRatio
+          ? (financialGoals.manualRatio || 6)
+          : (mcStats.ratio || 6);
+        const mcWeeks = financialGoals.commercialWeeks || 48;
+        const mcWeeklyPLTarget = mcWeeks > 0 ? (mcTxNeeded * mcEffectiveRatio) / mcWeeks : 0;
+
+        // --- 4. DISPLAY STRINGS ---
+        const mcHasData = mcStats.pl > 0 && mcStats.sides > 0;
+        let mcClosingRate: string;
+        let mcRatioDisplay: string;
+        let mcIsStandard = false;
+
+        if (mcHasData) {
+          mcClosingRate = ((mcStats.sides / mcStats.pl) * 100).toFixed(1);
+          mcRatioDisplay = `${(mcStats.pl / mcStats.sides).toFixed(1)}:1`;
+        } else {
+          mcClosingRate = '16.7';
+          mcRatioDisplay = '6.0:1 (estándar)';
+          mcIsStandard = true;
+        }
+
+        const mcDisplayMetrics = {
+          transactionsNeeded: mcTxNeeded,
+          transactionsDone: mcStats.sides,
+          greenMeetingsTarget: 15,
+          greenMeetingsDone: mcWeeklyGreenDone,
+          pocketFees: mcStats.fees,
+          pocketFeesTarget: mcPocketFeesTarget,
+          criticalNumberTarget: mcWeeklyPLTarget,
+          criticalNumberDone: mcWeeklyPLDone,
+          activeProperties: properties.filter(p => p.status === 'disponible' || p.status === 'reservada').length,
+          honorariosPromedio: mcStats.honorariosPromedio,
+          productividadActividad: mcStats.productividadActividad,
+          isDataReliable: mcStats.isDataReliable
         };
 
+        return <BusinessControl
+          currentBilling={mcStats.billing}
+          annualBillingTarget={financialGoals.annualBilling || 120000}
+          averageTicket={mcStats.avgTicket}
+          pipelineValue={pipelineValue}
+          metrics={mcDisplayMetrics}
+          captationGoals={(() => {
+            // Calculate weeks from captation dates
+            const startDate = financialGoals.captationStartDate || new Date().toISOString().split('T')[0];
+            const endDate = financialGoals.captationEndDate || new Date(new Date().setMonth(new Date().getMonth() + 1)).toISOString().split('T')[0];
+            const calculateWeeks = (start: string, end: string) => {
+              try {
+                const s = new Date(start);
+                const e = new Date(end);
+                if (isNaN(s.getTime()) || isNaN(e.getTime())) return 4;
+                const diff = Math.floor((e.getTime() - s.getTime()) / (7 * 24 * 60 * 60 * 1000));
+                return Math.max(diff, 1);
+              } catch {
+                return 4;
+              }
+            };
+            const weeksDuration = calculateWeeks(startDate, endDate);
+            const captationRatio = financialGoals.isManualCaptationRatio
+              ? (financialGoals.manualCaptationRatio || 2.5)
+              : (objectivesData.captationStats.listings > 0
+                ? objectivesData.captationStats.preListings / objectivesData.captationStats.listings
+                : 2.5);
+            const preListingsNeeded = (financialGoals.captationGoalQty || 0) * captationRatio;
+            const weeklyTarget = weeksDuration > 0 ? preListingsNeeded / weeksDuration : 0;
+
+            return {
+              goalQty: financialGoals.captationGoalQty || 0,
+              startDate: startDate,
+              endDate: endDate,
+              weeksDuration: weeksDuration,
+              weeklyPLTarget: weeklyTarget,
+              weeklyPLDone: mcWeeklyPLDone
+            };
+          })()}
+          onNavigateToWeek={() => setView('my-week')}
+          onNavigateToCalendar={() => setView('calendar')}
+          closingRate={mcClosingRate}
+          closingRatioDisplay={mcRatioDisplay}
+          isStandardRate={mcIsStandard}
+          availableYears={availableYears}
+          currentYear={selectedYear}
+          onSelectYear={setSelectedYear}
+          isHistoricalView={isHistoricalView}
+          onToggleHistorical={setIsHistoricalView}
+        />;
+
+      case 'objectives':
+        // Use memoized data to prevent flickering
         return <ObjectivesDashboard
           key="objectives-dashboard"
           currentBilling={currentTotalBilling}
           currentActivities={currentTotalPLPB}
-          currentRatio={historicalRatio} // Use Historic Ratio for planning
-          pipelineValue={pipelineValue} // Pass the "Lag" Fix
-          weeksOfData={weeksOfData}
-          totalClosings={totalClosings}
-          captationStats={captationStats}
-          historicalAverageTicket={historicalAverageTicket}
-          // New Props
+          currentRatio={historicalRatio}
+          pipelineValue={pipelineValue}
+          weeksOfData={objectivesData.weeksOfData}
+          totalClosings={objectivesData.totalClosings}
+          captationStats={objectivesData.captationStats}
+          historicalAverageTicket={objectivesData.historicalAverageTicket || financialGoals.averageTicket || 4000}
           properties={properties}
           activities={activities}
           visits={visits}
-          onNavigate={(view, params) => {
-            navigateTo(view, params);
-          }}
+          onNavigate={handleNavigateCallback}
           financialGoals={financialGoals}
           onUpdateGoals={handleUpdateFinancialGoals}
           onSaveGoals={handleSaveFinancialGoals}
+          availableYears={[2024, 2025, 2026, 2027, 2028]}
+          currentYear={selectedYear}
+          onSelectYear={setSelectedYear}
+          isLoading={loadingGoals}
+          hasUnsavedChanges={hasUnsavedGoals}
         />;
       case 'closings':
         return <ClosingsDashboard
@@ -1314,10 +2132,24 @@ export default function App() {
           onDeleteClosing={handleDeleteClosing}
           exchangeRate={financialGoals.exchangeRate || 1000}
           onUpdateExchangeRate={(rate) => handleUpdateFinancialGoals({ exchangeRate: rate })}
+          availableYears={availableYears}
+          currentYear={selectedYear}
+          onSelectYear={setSelectedYear}
         />;
 
       case 'calendar':
-        return <CalendarDashboard activities={activities} visits={visits} />;
+        return <CalendarDashboard
+          session={session}
+          activities={activities}
+          visits={visits}
+          googleEvents={googleEvents}
+          onEventsChange={setGoogleEvents}
+          isGoogleSynced={isGoogleSynced}
+          onSyncChange={setIsGoogleSynced}
+          googleAccessToken={googleAccessToken}
+          onTokenChange={setGoogleAccessToken}
+          isCheckingSync={isCheckingGoogleSync}
+        />;
 
       default: return null;
     }
@@ -1327,54 +2159,7 @@ export default function App() {
     setExpandedGroup(expandedGroup === group ? null : group);
   };
 
-  // --- ERROR BOUNDARY COMPONENT ---
-  // --- ERROR BOUNDARY COMPONENT ---
-  interface ErrorBoundaryState {
-    hasError: boolean;
-    error: Error | null;
-  }
 
-  class ErrorBoundary extends React.Component<{ children: React.ReactNode }, ErrorBoundaryState> {
-    constructor(props: { children: React.ReactNode }) {
-      super(props);
-      this.state = { hasError: false, error: null };
-    }
-
-    static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-      return { hasError: true, error };
-    }
-
-    componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-      console.error("Uncaught error:", error, errorInfo);
-    }
-
-    render() {
-      if (this.state.hasError) {
-        return (
-          <div className="flex flex-col items-center justify-center h-screen bg-red-50 p-8 text-[#364649]">
-            <h1 className="text-3xl font-bold mb-4 text-red-600">¡Ups! Algo salió mal.</h1>
-            <p className="mb-4 text-lg">La aplicación ha encontrado un error inesperado.</p>
-            <div className="bg-white p-6 rounded-xl shadow-lg border border-red-200 max-w-2xl w-full overflow-auto">
-              <pre className="whitespace-pre-wrap text-xs text-red-800">
-                {this.state.error?.toString()}
-              </pre>
-            </div>
-            <button
-              onClick={() => {
-                this.setState({ hasError: false, error: null });
-                window.location.reload();
-              }}
-              className="mt-8 px-6 py-3 bg-[#364649] text-white rounded-xl font-bold hover:bg-[#2C3A3D] transition-colors"
-            >
-              Recargar Aplicación
-            </button>
-          </div>
-        );
-      }
-
-      return this.props.children;
-    }
-  }
 
   // --- RENDER LOGIN OR APP ---
   if (isAuthChecking) {
@@ -1395,6 +2180,17 @@ export default function App() {
   // Wrap content in ErrorBoundary
   return (
     <ErrorBoundary>
+      {/* Welcome Screen */}
+      <WelcomeScreen
+        isVisible={showWelcome}
+        onClose={() => setShowWelcome(false)}
+        userName={session?.user?.email || 'Agente'}
+      />
+      {/* Success Notification */}
+      <SuccessNotification
+        isVisible={showSuccessNotification}
+        onClose={() => setShowSuccessNotification(false)}
+      />
       <div className="flex h-screen overflow-hidden bg-[#E0D8CC] text-[#364649] selection:bg-[#AA895F]/30">
 
         {/* Sidebar */}
@@ -1412,19 +2208,8 @@ export default function App() {
 
             <nav className="mt-8 px-4 space-y-2">
 
-              {/* METRICS GROUP */}
-              <div>
-                <button onClick={() => toggleGroup('metrics')} className="w-full flex items-center justify-between p-3 rounded-xl mb-1 text-slate-300 hover:bg-white/10 hover:text-white transition-all duration-300 group">
-                  <div className="flex items-center"><BarChart3 size={20} className="group-hover:text-white transition-colors" /><span className="hidden lg:block ml-3 text-sm font-bold uppercase tracking-wider">Métricas</span></div>
-                  <div className="hidden lg:block">{expandedGroup === 'metrics' ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</div>
-                </button>
-                <div className={`overflow-hidden transition-all duration-300 ${expandedGroup === 'metrics' ? 'max-h-32 opacity-100' : 'max-h-0 opacity-0'}`}>
-                  <div className="ml-0 lg:ml-4 border-l border-white/10 pl-2 space-y-1 mt-1">
-                    <NavItem icon={<LayoutDashboard size={18} />} label="Resumen" active={view === 'home' || view === 'metrics-home'} onClick={() => navigateTo('metrics-home')} small />
-                    <NavItem icon={<PieChart size={18} />} label="Control Negocio" active={view === 'metrics-control'} onClick={() => navigateTo('metrics-control')} small />
-                  </div>
-                </div>
-              </div>
+              <NavItem icon={<LayoutDashboard size={20} />} label="INICIO" active={view === 'home' || view === 'metrics-home'} onClick={() => navigateTo('metrics-home')} />
+              <NavItem icon={<PieChart size={20} />} label="Control Negocio" active={view === 'metrics-control'} onClick={() => navigateTo('metrics-control')} />
 
               <div><NavItem icon={<Calendar size={20} />} label="Calendario" active={view === 'calendar'} onClick={() => navigateTo('calendar')} /></div>
 
@@ -1472,9 +2257,6 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="pt-4 mt-2 border-t border-white/10">
-                <NavItem icon={<Database size={20} />} label="Cargar Datos Prueba" active={false} onClick={handleLoadSeedData} />
-              </div>
             </nav>
           </div>
 
@@ -1508,10 +2290,11 @@ export default function App() {
             {/* Header Content Omitted for brevity, assuming standard header */}
             <div className="flex items-center gap-4">
               <h2 className="text-xl font-bold text-[#364649] capitalize">
-                {view === 'home' ? 'Panel Principal' :
-                  view.includes('buyer') ? 'Gestión Compradores' :
-                    view.includes('visit') ? 'Gestión Visitas' :
-                      view.replace('-', ' ')}
+                {view === 'home' || view === 'metrics-home' ? 'Inicio' :
+                  view === 'metrics-control' ? 'Control de Negocio' :
+                    view.includes('buyer') ? 'Gestión Compradores' :
+                      view.includes('visit') ? 'Gestión Visitas' :
+                        view.replace('-', ' ')}
               </h2>
             </div>
 
@@ -1569,20 +2352,6 @@ export default function App() {
             onClose={() => setMarketingModalOpen(false)}
           />
         )}
-
-        {/* DEBUG FOOTER */}
-        <div className="fixed bottom-0 right-0 bg-black/80 text-[10px] text-white p-2 z-50 font-mono pointer-events-none opacity-50 hover:opacity-100">
-          <div className="flex flex-col gap-0.5">
-            <span>UID: {session?.user?.id?.slice(0, 8)}...</span>
-            <span>Role: {isMother ? 'MOTHER' : 'CHILD'}</span>
-            <span className="text-[#AA895F]">Data Status:</span>
-            <span>Closings: {closingLogs.length}</span>
-            <span>Clients: {clients.length} / Props: {properties.length}</span>
-          </div>
-        </div>
-
-
-
 
 
       </div>
