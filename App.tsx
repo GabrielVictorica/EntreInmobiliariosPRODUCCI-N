@@ -590,66 +590,96 @@ export default function App() {
   const [selectedTeamUser, setSelectedTeamUser] = useState<string | null>(null);
 
   // Fetch KPI Data from View using Native Fetch for consistency and RLS bypass
-  useEffect(() => {
-    if (!session?.user?.id) return;
-    const fetchKPIs = async () => {
-      const SUPABASE_URL = 'https://whfoflccshoztjlesnhh.supabase.co';
-      const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoZm9mbGNjc2hvenRqbGVzbmhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MzUwMzEsImV4cCI6MjA4MTMxMTAzMX0.rPQdO1qCovC9WP3ttlDOArvTI7I15lg7fnOPkJseDos';
-      const token = session?.access_token || SUPABASE_KEY;
+  const fetchKPIs = useCallback(async (currentSession?: any, momStatus?: boolean, teamUser?: string | null) => {
+    const sess = currentSession || session;
+    if (!sess?.user?.id) return;
 
-      let url = `${SUPABASE_URL}/rest/v1/view_kpi_dashboard_anual?select=*`;
+    const SUPABASE_URL = 'https://whfoflccshoztjlesnhh.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoZm9mbGNjc2hvenRqbGVzbmhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MzUwMzEsImV4cCI6MjA4MTMxMTAzMX0.rPQdO1qCovC9WP3ttlDOArvTI7I15lg7fnOPkJseDos';
+    const token = sess?.access_token || SUPABASE_KEY;
 
-      // Filter by user if not Mother (Global) or if specific team user selected
-      if (!isMother) {
-        url += `&user_id=eq.${session.user.id}`;
-      } else if (selectedTeamUser) {
-        url += `&user_id=eq.${selectedTeamUser}`;
-      }
+    let url = `${SUPABASE_URL}/rest/v1/view_kpi_dashboard_anual?select=*`;
 
-      try {
-        const response = await fetch(url, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': SUPABASE_KEY,
-            'Authorization': `Bearer ${token}`
-          }
-        });
+    const isMom = momStatus !== undefined ? momStatus : isMother;
+    const targetTeamUser = teamUser !== undefined ? teamUser : selectedTeamUser;
 
-        if (response.ok) {
-          const data = await response.json();
-          console.log(">>> [DEBUG] fetchKPIs received data:", data?.length || 0, "rows");
+    // Filter by user if not Mother (Global) or if specific team user selected
+    if (!isMom) {
+      url += `&user_id=eq.${sess.user.id}`;
+    } else if (targetTeamUser === 'global') {
+      // GLOBAL: No user_id filter to get sum of all team results
+    } else if (targetTeamUser) {
+      // Specific Child ID
+      url += `&user_id=eq.${targetTeamUser}`;
+    } else {
+      // Default Mother Individual View
+      url += `&user_id=eq.${sess.user.id}`;
+    }
 
-          if (Array.isArray(data)) {
-            // Ensure numeric types are actually numbers and handle falsy values
-            const parsed = data.map(d => ({
-              ...d,
-              anio: Number(d.anio || 0),
-              facturacion_total: Number(d.facturacion_total || 0),
-              transacciones_cerradas: Number(d.transacciones_cerradas || 0),
-              transacciones_operaciones: Number(d.transacciones_operaciones || 0),
-              volumen_total: Number(d.volumen_total || 0),
-              ticket_promedio: Number(d.ticket_promedio || 0),
-              honorarios_reales: Number(d.honorarios_reales || 0),
-              efectividad_cierre: Number(d.efectividad_cierre || 0),
-              efectividad_captacion: Number(d.efectividad_captacion || 0),
-              honorarios_promedio: Number(d.honorarios_promedio || 0),
-              productividad_actividad: Number(d.productividad_actividad || 0),
-              annual_billing: Number(d.annual_billing || 0),
-              monthly_need: Number(d.monthly_need || 0)
-            }));
-            setKpiData(parsed);
-          }
-        } else {
-          const errText = await response.text();
-          console.error('Error fetching KPIs:', response.status, errText);
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${token}`
         }
-      } catch (e) {
-        console.error('Exception fetching KPIs:', e);
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log(">>> [DEBUG] fetchKPIs received data:", data?.length || 0, "rows");
+
+        if (Array.isArray(data)) {
+          // Ensure numeric types are actually numbers and handle falsy values
+          const parsed = data.map(d => ({
+            ...d,
+            anio: Number(d.anio || 0),
+            facturacion_total: Number(d.facturacion_total || 0),
+            transacciones_cerradas: Number(d.transacciones_cerradas || 0),
+            transacciones_operaciones: Number(d.transacciones_operaciones || 0),
+            volumen_total: Number(d.volumen_total || 0),
+            ticket_promedio: Number(d.ticket_promedio || 0),
+            honorarios_reales: Number(d.honorarios_reales || 0),
+            efectividad_cierre: Number(d.efectividad_cierre || 0),
+            efectividad_captacion: Number(d.efectividad_captacion || 0),
+            honorarios_promedio: Number(d.honorarios_promedio || 0),
+            productividad_actividad: Number(d.productividad_actividad || 0),
+            annual_billing: Number(d.annual_billing || 0),
+            monthly_need: Number(d.monthly_need || 0)
+          }));
+          setKpiData(parsed);
+          // Cache for instant load next time
+          try {
+            localStorage.setItem('kpi_data_cache', JSON.stringify(parsed));
+          } catch (e) {
+            console.error("Error caching KPI data:", e);
+          }
+        }
+      } else {
+        const errText = await response.text();
+        console.error('Error fetching KPIs:', response.status, errText);
       }
-    };
+    } catch (e) {
+      console.error('Exception fetching KPIs:', e);
+    }
+  }, [session, isMother, selectedTeamUser]);
+
+  // Initial Load from Cache
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem('kpi_data_cache');
+      if (cached) {
+        setKpiData(JSON.parse(cached));
+      }
+    } catch (e) {
+      console.error("Error loading KPI cache:", e);
+    }
+  }, []);
+
+  useEffect(() => {
     fetchKPIs();
-  }, [session, closingLogs, activities, selectedTeamUser, isMother]);
+  }, [fetchKPIs, selectedTeamUser]);
 
   // --- Financial Goals State (Shared between Objectives & Control) ---
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
@@ -858,14 +888,17 @@ export default function App() {
 
   // --- MEMOIZED DATA FOR DASHBOARDS ---
   const objectivesData = useMemo(() => {
-    // REFACTORED: Use kpiData for aggregations
+    // REFACTORED: Use ALL kpiData for true historical averages (Ticket, Ratio)
+    // kpiData is already filtered by user_id in fetchKPIs based on selectedTeamUser
     const totalVolume = kpiData.reduce((acc, row) => acc + (row.volumen_total || 0), 0);
     const totalSides = kpiData.reduce((acc, row) => acc + (row.transacciones_cerradas || 0), 0);
     const totalOperations = kpiData.reduce((acc, row) => acc + (row.transacciones_operaciones || 0), 0);
-    // 1. Historical Average Ticket (Global) - BASED ON SALE PRICE VOLUME
+
+    // 1. Historical Average Ticket (True Historical)
     const historicalAverageTicket = totalOperations > 0 ? totalVolume / totalOperations : 0;
 
-    const weeksOfData = new Set(activities.map(a => {
+    // 2. Weeks of Data (Contextual to Selected Year for current performance monitoring)
+    const weeksOfData = new Set(activities.filter(a => new Date(a.date).getFullYear() === selectedYear).map(a => {
       const d = new Date(a.date);
       const onejan = new Date(d.getFullYear(), 0, 1);
       const week = Math.ceil((((d.getTime() - onejan.getTime()) / 86400000) + onejan.getDay() + 1) / 7);
@@ -874,7 +907,7 @@ export default function App() {
 
     const totalClosings = totalSides;
 
-    // 2. Captation Stats (Global flow)
+    // 3. Captation Stats (True Historical flow)
     const totalPL = kpiData.reduce((acc, row) => acc + (row.total_pl || 0), 0);
     const totalCaptaciones = kpiData.reduce((acc, row) => acc + (row.total_captaciones || 0), 0);
 
@@ -884,7 +917,7 @@ export default function App() {
     };
 
     return { historicalAverageTicket, weeksOfData, totalClosings, captationStats };
-  }, [kpiData, activities]); // activities still needed for weeksOfData
+  }, [kpiData, activities, selectedYear]); // Added selectedYear dependency
 
   const handleNavigateCallback = useCallback((view: any, params?: any) => {
     navigateTo(view, params);
@@ -892,19 +925,63 @@ export default function App() {
 
   // --- Auth & Session Management ---
   const checkUserRole = async (userId: string, currentSession?: any) => {
-    const userEmail = currentSession?.user?.email || session?.user?.email;
-    const isMom = userEmail === 'gabriel.v.g06@gmail.com';
-    setIsMother(isMom);
+    try {
+      const SUPABASE_URL = 'https://whfoflccshoztjlesnhh.supabase.co';
+      const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoZm9mbGNjc2hvenRqbGVzbmhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MzUwMzEsImV4cCI6MjA4MTMxMTAzMX0.rPQdO1qCovC9WP3ttlDOArvTI7I15lg7fnOPkJseDos';
+      const token = currentSession?.access_token || session?.access_token || SUPABASE_KEY;
+
+      // Check current user's role
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/user_roles?user_id=eq.${userId}&select=role`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const isMom = data && data.length > 0 && data[0].role === 'mother';
+        setIsMother(isMom);
+
+        // If mother, fetch all team users (children)
+        if (isMom) {
+          const teamResponse = await fetch(`${SUPABASE_URL}/rest/v1/user_roles?role=eq.child&select=user_id,email`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${token}`
+            }
+          });
+
+          if (teamResponse.ok) {
+            const teamData = await teamResponse.json();
+            setTeamUsers(teamData || []);
+            console.log('>>> Team users loaded:', teamData?.length || 0);
+          }
+        } else {
+          setTeamUsers([]);
+        }
+
+        return isMom;
+      }
+    } catch (error) {
+      console.error('Error checking user role:', error);
+    }
+    setIsMother(false);
     setTeamUsers([]);
-    return isMom;
+    return false;
   };
 
-  const isMasterUser = session?.user?.email === 'gabriel.v.g06@gmail.com';
+  // isMother is now set by checkUserRole, use state instead of hardcoded email
+  const isMasterUser = isMother;
 
 
   // 1. Current Billing (Annual Reset)
   const currentTotalBilling = useMemo(() => {
-    const currentYear = new Date().getFullYear();
+    const currentYear = selectedYear;
     const rate = financialGoals.exchangeRate || 1000;
 
     return closingLogs
@@ -914,30 +991,30 @@ export default function App() {
         const amount = curr.currency === 'ARS' ? curr.totalBilling / rate : curr.totalBilling;
         return acc + amount;
       }, 0);
-  }, [closingLogs, financialGoals.exchangeRate]);
+  }, [closingLogs, financialGoals.exchangeRate, selectedYear]);
 
   // Calculate Total Sides for Transactions Metric
   const currentTotalSides = useMemo(() => {
-    const currentYear = new Date().getFullYear();
+    const currentYear = selectedYear;
     return closingLogs
       .filter(c => new Date(c.date).getFullYear() === currentYear)
       .reduce((acc, curr) => acc + (curr.sides || 0), 0);
-  }, [closingLogs]);
+  }, [closingLogs, selectedYear]);
 
   // 2. Current Year Activities (Annual Reset for Goals)
   const currentTotalPLPB = useMemo(() => {
-    const currentYear = new Date().getFullYear();
+    const currentYear = selectedYear;
     return activities.filter(a => {
       const date = new Date(a.date);
       return (a.type === 'pre_listing' || a.type === 'pre_buying') && date.getFullYear() === currentYear;
     }).length;
-  }, [activities]);
+  }, [activities, selectedYear]);
 
   // 3. Historical Ratio (All Time Data - Stability)
   // Requires: minimum 4 months of data (~17 weeks) AND 5 closings
   // Standard default: 6:1 (6 PL-PB per closing = 16.67% closing rate)
   const MIN_WEEKS_FOR_RATIO = 17; // ~4 months
-  const MIN_CLOSINGS_FOR_RATIO = 5;
+  const MIN_CLOSINGS_FOR_RATIO = 8;
   const STANDARD_RATIO = 6; // 6:1 standard
 
   const historicalRatio = useMemo(() => {
@@ -990,105 +1067,149 @@ export default function App() {
     if (!hasLoadedOnce.current) setLoading(true);
 
     try {
-      // STAGE 1: VITAL DASHBOARD DATA (Fastest possible TTI)
-      // We load only what's needed for the Main Dashboard metrics & Agenda.
-
-      // Use native fetch for closing_logs due to Supabase client issues
       const SUPABASE_URL = 'https://whfoflccshoztjlesnhh.supabase.co';
       const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoZm9mbGNjc2hvenRqbGVzbmhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MzUwMzEsImV4cCI6MjA4MTMxMTAzMX0.rPQdO1qCovC9WP3ttlDOArvTI7I15lg7fnOPkJseDos';
-
       const token = tokenOverride || session?.access_token || SUPABASE_KEY;
-      console.log(">>> [DEBUG] loadAllData: using token:", token ? token.slice(0, 20) + '...' : 'NONE');
-      console.log(">>> [DEBUG] loadAllData: activeUserId:", uid);
 
-      const closingsPromise = fetch(`${SUPABASE_URL}/rest/v1/closing_logs?select=*&order=date.desc`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${token}`
+      const isGlobal = isMom && teamUser === 'global';
+      const targetUserId = isMom && teamUser && teamUser !== 'global' ? teamUser : uid;
+
+      console.log(">>> [DEBUG] loadAllData: starting parallel fetch...");
+
+      // PARALLEL FETCH STRATEGY: Start all vital requests at once
+      const vitalPromises = [
+        // 1. Closings
+        fetch(`${SUPABASE_URL}/rest/v1/closing_logs?select=*&order=date.desc`, {
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json()),
+
+        // 2. Visits
+        supabase.from('visits').select('*'),
+
+        // 3. Activities
+        fetch(`${SUPABASE_URL}/rest/v1/activities?select=*&order=date.desc`, {
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json()),
+
+        // 4. KPIs (View)
+        fetchKPIs(session, isMom, teamUser)
+      ];
+
+      // Wait for the most critical ones before unblocking UI
+      const results = await Promise.all(vitalPromises);
+      const [closingsData, visitsRes, activitiesData] = results;
+
+      // Process Closings
+      if (Array.isArray(closingsData)) {
+        let mapped = closingsData.map(x => {
+          try { return mapClosingFromDB(x); }
+          catch (e) { return null; }
+        }).filter((x): x is ClosingRecord => x !== null);
+
+        if (isMom && teamUser && teamUser !== 'global') {
+          mapped = mapped.filter(x => x.userId === teamUser);
+        } else if (!isGlobal) {
+          mapped = mapped.filter(x => x.userId === uid);
         }
-      }).then(async r => {
-        console.log(">>> [DEBUG] Fetch status:", r.status);
-        const data = await r.json();
-        console.log(">>> [DEBUG] Fetch data length:", Array.isArray(data) ? data.length : 'Not Array');
-        return data;
+        setClosingLogs(mapped);
+      }
+
+      // Process Visits
+      if (visitsRes.data) {
+        const mapped = visitsRes.data.map(mapVisitFromDB);
+        setVisits(isGlobal ? mapped : mapped.filter(x => x.userId === targetUserId));
+      }
+
+      // Process Activities
+      if (Array.isArray(activitiesData)) {
+        const mapped = activitiesData.map(mapActivityFromDB);
+        setActivities(isGlobal ? mapped : mapped.filter(x => x.userId === targetUserId));
+      }
+
+      // STAGE 2: Settings & Heavy Lists
+      // Settings load
+      if (isGlobal) {
+        fetch(`${SUPABASE_URL}/rest/v1/user_settings?select=*`, {
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${token}` }
+        }).then(async r => {
+          if (r.ok) {
+            const allSettings = await r.json();
+            if (Array.isArray(allSettings) && allSettings.length > 0) {
+              const aggregated = allSettings.reduce((acc, curr) => ({
+                annualBilling: acc.annualBilling + (Number(curr.annual_billing) || 0),
+                monthlyNeed: acc.monthlyNeed + (Number(curr.monthly_need) || 0),
+                averageTicket: acc.averageTicket,
+                commissionSplit: acc.commissionSplit,
+                commercialWeeks: Math.max(acc.commercialWeeks, Number(curr.commercial_weeks) || 48),
+                manualRatio: acc.manualRatio,
+                isManualRatio: acc.isManualRatio,
+                isManualTicket: acc.isManualTicket,
+                exchangeRate: curr.exchange_rate || acc.exchangeRate
+              }), {
+                annualBilling: 0, monthlyNeed: 0, averageTicket: 4000, commissionSplit: 45,
+                commercialWeeks: 48, manualRatio: 6, isManualRatio: false, isManualTicket: false, exchangeRate: 1000
+              });
+              setFinancialGoals(aggregated);
+            }
+          }
+        });
+      } else {
+        supabase.from('user_settings').select('*').eq('user_id', targetUserId).maybeSingle().then(({ data: settingsData }) => {
+          if (settingsData) {
+            setFinancialGoals({
+              annualBilling: Number(settingsData.annual_billing) || 0,
+              monthlyNeed: Number(settingsData.monthly_need) || 0,
+              averageTicket: Number(settingsData.average_ticket) || 4000,
+              commissionSplit: Number(settingsData.commission_split) || 45,
+              commercialWeeks: Number(settingsData.commercial_weeks) || 48,
+              manualRatio: Number(settingsData.manual_ratio) || 6,
+              isManualRatio: !!settingsData.is_manual_ratio,
+              isManualTicket: !!settingsData.is_manual_ticket,
+              exchangeRate: Number(settingsData.exchange_rate) || 1000,
+              captationGoalQty: Number(settingsData.captation_goal_qty) || 2,
+              captationGoalPeriod: settingsData.captation_goal_period || 'month',
+              manualCaptationRatio: Number(settingsData.manual_captation_ratio) || 2.5,
+              isManualCaptationRatio: !!settingsData.is_manual_captation_ratio,
+              captationStartDate: settingsData.captation_start_date || new Date().toISOString().split('T')[0],
+              captationEndDate: settingsData.captation_end_date || new Date().toISOString().split('T')[0]
+            });
+          }
+        });
+      }
+
+      // Background Heavy Lists
+      Promise.all([
+        supabase.from('seller_clients').select('*'),
+        supabase.from('properties').select('*'),
+        supabase.from('buyer_clients').select('*'),
+        supabase.from('buyer_searches').select('*'),
+        supabase.from('property_marketing_logs').select('*').order('date', { ascending: false })
+      ]).then(bgResults => {
+        const [c, p, bc, bs, m] = bgResults;
+        if (c.data) {
+          const mapped = c.data.map(mapSellerFromDB);
+          setClients(isGlobal ? mapped : mapped.filter(x => x.userId === targetUserId));
+        }
+        if (p.data) {
+          const mapped = p.data.map(mapPropertyFromDB);
+          setProperties(isGlobal ? mapped : mapped.filter(x => x.userId === targetUserId));
+        }
+        if (bc.data) {
+          const mapped = bc.data.map(mapBuyerFromDB);
+          setBuyerClients(isGlobal ? mapped : mapped.filter(x => x.userId === targetUserId));
+        }
+        if (bs.data) {
+          const mapped = bs.data.map(mapSearchFromDB);
+          setBuyerSearches(isGlobal ? mapped : mapped.filter(x => x.userId === targetUserId));
+        }
+        if (m.data) setMarketingLogs(m.data.map(mapMarketingFromDB));
       });
 
-      console.log(">>> [DEBUG] Starting independent fetches...");
-
-      // 1. CLOSINGS (Critical - Native Fetch)
-      closingsPromise.then(closingsData => {
-        if (Array.isArray(closingsData) && closingsData.length > 0) {
-          console.log(`>>> LOADING CLOSINGS: Found ${closingsData.length} records.`);
-          const mapped = closingsData.map((x: any) => {
-            try { return mapClosingFromDB(x); }
-            catch (err) { console.error(">>> ERROR MAPPING CLOSING:", x, err); return null; }
-          }).filter((x): x is ClosingRecord => x !== null);
-
-          console.log(`>>> LOADING CLOSINGS: Successfully mapped ${mapped.length} records.`);
-          if (mapped.length > 0) setClosingLogs(mapped);
-        } else {
-          console.log(">>> CLOSINGS - No data or empty array:", closingsData);
-        }
-      }).catch(err => console.error(">>> ERROR FETCHING CLOSINGS:", err));
-
-      // 2. SETTINGS (Supabase)
-      supabase.from('user_settings').select('*').eq('user_id', uid).maybeSingle().then(({ data: settingsData, error }) => {
-        if (settingsData) {
-          setFinancialGoals(prev => ({
-            ...prev,
-            annualBilling: settingsData.annual_billing ?? prev.annualBilling,
-            monthlyNeed: settingsData.monthly_need ?? prev.monthlyNeed,
-            averageTicket: settingsData.average_ticket ?? prev.averageTicket,
-            commissionSplit: settingsData.commission_split ?? prev.commissionSplit,
-            commercialWeeks: settingsData.commercial_weeks ?? prev.commercialWeeks,
-            manualRatio: settingsData.manual_ratio ?? prev.manualRatio,
-            isManualRatio: settingsData.is_manual_ratio ?? prev.isManualRatio,
-            isManualTicket: settingsData.is_manual_ticket ?? prev.isManualTicket,
-            exchangeRate: settingsData.exchange_rate ?? 1000
-          }));
-        }
-        if (error) console.error(">>> ERROR LOADING SETTINGS:", error);
-      });
-
-      // 3. VISITS & ACTIVITIES
-      const teamUserFilter = isMom && teamUser;
-
-      supabase.from('visits').select('*').then(({ data, error }) => {
-        if (data) {
-          const mapped = data.filter(x => !!x).map(mapVisitFromDB);
-          setVisits(teamUserFilter ? mapped.filter(x => x.userId === teamUser) : mapped);
-        }
-        if (error) console.error(">>> ERROR LOADING VISITS:", error);
-      });
-
-      // 4. ACTIVITIES (Native Fetch - same pattern as closings for RLS compatibility)
-      fetch(`${SUPABASE_URL}/rest/v1/activities?select=*&order=date.desc`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${token}`
-        }
-      }).then(async r => {
-        const data = await r.json();
-        if (Array.isArray(data) && data.length > 0) {
-          console.log(`>>> LOADING ACTIVITIES: Found ${data.length} records.`);
-          const mapped = data.filter((x: any) => !!x).map(mapActivityFromDB);
-          setActivities(teamUserFilter ? mapped.filter(x => x.userId === teamUser) : mapped);
-        } else {
-          console.log(">>> ACTIVITIES - No data or empty array:", data);
-        }
-      }).catch(err => console.error(">>> ERROR FETCHING ACTIVITIES:", err));
-
-      // 🚀 UNBLOCK UI NOW (Progressive Loading)
-      // The user sees the Dashboard with KPIs immediately.
+      // 🚀 UNBLOCK UI NOW
       if (!hasLoadedOnce.current) {
         setLoading(false);
-        setIsAuthChecking(false); // CRITICAL: Clear strict auth blocking
+        setIsAuthChecking(false);
         hasLoadedOnce.current = true;
-        // Show welcome screen on first load of this browser session
         if (!sessionStorage.getItem('welcomeShown')) {
           setShowWelcome(true);
           sessionStorage.setItem('welcomeShown', 'true');
@@ -1096,52 +1217,12 @@ export default function App() {
       }
       setIsDataReady(true);
 
-
-      // STAGE 2: HEAVY LISTS (Background load)
-      // These are needed for Client Lists, Property Lists and Deep Calculation (Pipeline).
-      // They will appear seamlessly when loaded.
-      const heavyResults = await Promise.all([
-        supabase.from('seller_clients').select('*'),
-        supabase.from('properties').select('*'),
-        supabase.from('buyer_clients').select('*'),
-        supabase.from('buyer_searches').select('*'),
-        supabase.from('property_marketing_logs').select('*').order('date', { ascending: false })
-      ]);
-
-      const [c, p, bc, bs, m] = heavyResults;
-
-      // Check for errors in background load
-      const bgErrors = heavyResults.filter(r => r.error).map(r => r.error);
-      if (bgErrors.length > 0) console.error("Background Load Errors:", bgErrors); // Don't crash UI for background errors
-
-      if (c.data) {
-        const mapped = c.data.filter(x => !!x).map(mapSellerFromDB);
-        setClients(teamUserFilter ? mapped.filter(x => x.userId === teamUser) : mapped);
-      }
-      if (p.data) {
-        const mapped = p.data.filter(x => !!x).map(mapPropertyFromDB);
-        setProperties(teamUserFilter ? mapped.filter(x => x.userId === teamUser) : mapped);
-      }
-      if (bc.data) {
-        const mapped = bc.data.filter(x => !!x).map(mapBuyerFromDB);
-        setBuyerClients(teamUserFilter ? mapped.filter(x => x.userId === teamUser) : mapped);
-      }
-      if (bs.data) {
-        const mapped = bs.data.filter(x => !!x).map(mapSearchFromDB);
-        setBuyerSearches(teamUserFilter ? mapped.filter(x => x.userId === teamUser) : mapped);
-      }
-      if (m.data) {
-        const mapped = m.data.filter(x => !!x).map(mapMarketingFromDB);
-        setMarketingLogs(mapped);
-      }
-
     } catch (error: any) {
-      console.error("Error loading VITAL data from Supabase:", error);
       console.error("Critical Data Load Error:", error.message);
-      setDebugError("Error de Carga: " + (error.message || "Desconocido")); // Show to user
+      setDebugError("Error de Carga: " + error.message);
     } finally {
       setIsAuthChecking(false);
-      setLoading(false); // Ensure loading is off even on error
+      setLoading(false);
     }
   };
 
@@ -1813,7 +1894,7 @@ export default function App() {
         // --- 3. TARGETS ---
         const hmEffectiveTicket = financialGoals.isManualTicket
           ? (financialGoals.averageTicket || 4000)
-          : (objectivesData.historicalAverageTicket || 4000);
+          : (objectivesData.historicalAverageTicket || financialGoals.averageTicket || 4000);
 
         const hmAnnBillingTarget = financialGoals.annualBilling || 40000;
         const hmCommPerSale = hmEffectiveTicket * 0.03;
@@ -1822,7 +1903,7 @@ export default function App() {
 
         const hmEffectiveRatio = financialGoals.isManualRatio
           ? (financialGoals.manualRatio || 6)
-          : (kpiStats.ratio || 6);
+          : (historicalRatio || 6);
 
         const hmWeeks = financialGoals.commercialWeeks || 48;
         const hmWeeklyPLTarget = hmWeeks > 0 ? (hmTxNeeded * hmEffectiveRatio) / hmWeeks : 0;
@@ -2002,7 +2083,7 @@ export default function App() {
         // --- 3. TARGETS ---
         const mcEffectiveTicket = financialGoals.isManualTicket
           ? (financialGoals.averageTicket || 4000)
-          : (objectivesData.historicalAverageTicket || 4000);
+          : (objectivesData.historicalAverageTicket || financialGoals.averageTicket || 4000);
 
         const mcAnnBillingTarget = financialGoals.annualBilling || 40000;
         const mcCommPerSale = mcEffectiveTicket * 0.03;
@@ -2011,7 +2092,7 @@ export default function App() {
 
         const mcEffectiveRatio = financialGoals.isManualRatio
           ? (financialGoals.manualRatio || 6)
-          : (mcStats.ratio || 6);
+          : (objectivesData.historicalAverageTicket ? historicalRatio : 6); // Use true historical ratio or default
         const mcWeeks = financialGoals.commercialWeeks || 48;
         const mcWeeklyPLTarget = mcWeeks > 0 ? (mcTxNeeded * mcEffectiveRatio) / mcWeeks : 0;
 
@@ -2311,9 +2392,10 @@ export default function App() {
                     onChange={(e) => setSelectedTeamUser(e.target.value || null)}
                     className="appearance-none bg-transparent font-bold text-sm text-[#364649] pr-6 cursor-pointer focus:outline-none"
                   >
-                    <option value="">Vista Global (Todos)</option>
+                    <option value="">Mis Datos (Personal)</option>
+                    <option value="global">Resumen Equipo (Global)</option>
                     {teamUsers.map(u => (
-                      <option key={u.id} value={u.id}>{u.email}</option>
+                      <option key={u.user_id} value={u.user_id}>{u.email}</option>
                     ))}
                   </select>
                   <ChevronDown size={14} className="absolute right-0 top-1/2 -translate-y-1/2 text-[#364649]/40 pointer-events-none" />

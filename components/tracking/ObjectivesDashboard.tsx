@@ -197,7 +197,7 @@ function ObjectivesDashboard({
     const isPerformanceGood = effectiveRatio <= 6;
 
     // --- SUFFICIENCY CHECKS ---
-    const isSufficientGeneralData = weeksOfData >= 17 && totalClosings >= 5;
+    const isSufficientGeneralData = weeksOfData >= 17 && totalClosings >= 8;
     const isSufficientCaptationData = weeksOfData >= 17 && captationStats.preListings >= 5;
 
     // --- AUTO-UPDATES BASED ON SUFFICIENCY ---
