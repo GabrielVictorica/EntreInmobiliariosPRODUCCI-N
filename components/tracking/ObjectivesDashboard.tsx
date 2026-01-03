@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom';
 import {
     Flag,
     Save, // Added Save Icon
@@ -263,8 +264,8 @@ function ObjectivesDashboard({
     return (
         <div className="space-y-6 pb-20 relative">
             {/* HISTORY MODAL overlay */}
-            {historyOpen && (
-                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setHistoryOpen(false)}>
+            {historyOpen && ReactDOM.createPortal(
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-[#364649]/20 backdrop-blur-[3px]" onClick={() => setHistoryOpen(false)}>
                     <div className="bg-white rounded-3xl w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
                         <div className="p-6 border-b border-gray-100 flex justify-between items-center">
                             <h3 className="text-xl font-bold text-[#364649] flex items-center gap-2">
@@ -302,7 +303,8 @@ function ObjectivesDashboard({
                             )}
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             {/* Header */}

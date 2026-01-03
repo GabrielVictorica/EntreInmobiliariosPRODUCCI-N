@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
+import ReactDOM from 'react-dom';
 import {
     ChevronLeft, ChevronRight, Plus, Users, Activity, UserPlus, Search, Link, X, ArrowRight, CheckCircle, Calendar, Trash2, HelpCircle, UserCheck, ArrowRightLeft
 } from 'lucide-react';
@@ -450,8 +451,8 @@ const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
             </div>
 
             {/* --- DELETE CONFIRMATION MODAL --- */}
-            {deleteConfirmOpen && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-gradient-to-br from-[#364649]/40 to-black/50 backdrop-blur-md animate-fade-in-up">
+            {deleteConfirmOpen && ReactDOM.createPortal(
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-[#364649]/20 backdrop-blur-[3px]">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 border border-white/20">
                         <div className="text-center">
                             <div className="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
@@ -485,12 +486,13 @@ const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
                             </button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             {/* --- MODAL (LIST or WIZARD) --- */}
-            {isModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gradient-to-br from-[#364649]/30 to-black/40 backdrop-blur-md animate-fade-in-up">
+            {isModalOpen && ReactDOM.createPortal(
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-[#364649]/20 backdrop-blur-[3px]">
                     <div className={`bg-white rounded-3xl shadow-2xl w-full p-6 border border-white/20 transition-all duration-300 flex flex-col max-h-[90vh] ${modalMode === 'wizard' && wizardStep !== 'finalize' && wizardStep !== 'select-contact' && wizardStep !== 'qualify-pb' ? 'max-w-5xl' : 'max-w-md'}`}>
 
                         {/* Header */}
@@ -830,7 +832,8 @@ const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
                             )}
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             {/* --- CLOSING FORM MODAL --- */}

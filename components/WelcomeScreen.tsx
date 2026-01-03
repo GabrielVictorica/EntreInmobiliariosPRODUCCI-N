@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import ReactDOM from 'react-dom';
 
 interface WelcomeScreenProps {
     isVisible: boolean;
@@ -51,7 +52,7 @@ export default function WelcomeScreen({
 
     if (!isVisible) return null;
 
-    return (
+    const modalContent = (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center">
             {/* Backdrop with gradient */}
             <div
@@ -164,4 +165,6 @@ export default function WelcomeScreen({
             `}</style>
         </div>
     );
+
+    return ReactDOM.createPortal(modalContent, document.body);
 }

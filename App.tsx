@@ -35,6 +35,7 @@ import ObjectivesDashboard from './components/tracking/ObjectivesDashboard';
 import WeeklyDashboard from './components/tracking/WeeklyDashboard';
 import ClosingsDashboard from './components/tracking/ClosingsDashboard';
 import CalendarDashboard from './components/tracking/CalendarDashboard';
+import HabitsDashboard from './components/tracking/HabitsDashboard';
 import SuccessNotification from './components/SuccessNotification';
 import WelcomeScreen from './components/WelcomeScreen';
 
@@ -482,7 +483,7 @@ export default function App() {
   const [session, setSession] = useState<any>(null);
 
   // Navigation State
-  const [view, setView] = useState<'home' | 'dashboard' | 'form' | 'properties-list' | 'property-form' | 'buyer-clients-list' | 'buyer-client-form' | 'buyer-searches-list' | 'buyer-search-form' | 'visits-list' | 'visit-form' | 'my-week' | 'objectives' | 'closings' | 'calendar' | 'metrics-home' | 'metrics-control'>('metrics-home');
+  const [view, setView] = useState<'home' | 'dashboard' | 'form' | 'properties-list' | 'property-form' | 'buyer-clients-list' | 'buyer-client-form' | 'buyer-searches-list' | 'buyer-search-form' | 'visits-list' | 'visit-form' | 'my-week' | 'objectives' | 'closings' | 'calendar' | 'metrics-home' | 'metrics-control' | 'habits'>('metrics-home');
   const [viewParams, setViewParams] = useState<any>(null);
   const [returnTo, setReturnTo] = useState<{ view: string, params?: any } | null>(null);
 
@@ -518,7 +519,7 @@ export default function App() {
       setExpandedGroup('sellers');
     } else if (['buyer-clients-list', 'buyer-client-form', 'buyer-searches-list', 'buyer-search-form', 'visits-list', 'visit-form'].includes(newView)) {
       setExpandedGroup('buyers');
-    } else if (['my-week', 'objectives', 'closings'].includes(newView)) {
+    } else if (['my-week', 'objectives', 'closings', 'habits'].includes(newView)) {
       setExpandedGroup('trakeo');
     } else if (['home', 'metrics-home', 'metrics-control'].includes(newView)) {
       setExpandedGroup('metrics');
@@ -2232,6 +2233,13 @@ export default function App() {
           isCheckingSync={isCheckingGoogleSync}
         />;
 
+      case 'habits':
+        return <HabitsDashboard
+          session={session}
+          isMother={isMother}
+          selectedTeamUser={selectedTeamUser}
+        />;
+
       default: return null;
     }
   };
@@ -2334,6 +2342,7 @@ export default function App() {
                     <NavItem icon={<CalendarDays size={18} />} label="Mí Semana" active={view === 'my-week'} onClick={() => navigateTo('my-week')} small />
                     <NavItem icon={<DollarSign size={18} />} label="Cierres" active={view === 'closings'} onClick={() => navigateTo('closings')} small />
                     <NavItem icon={<Flag size={18} />} label="Objetivos" active={view === 'objectives'} onClick={() => navigateTo('objectives')} small />
+                    <NavItem icon={<Target size={18} />} label="Tus Hábitos" active={view === 'habits'} onClick={() => navigateTo('habits')} small />
                   </div>
                 </div>
               </div>
@@ -2395,7 +2404,7 @@ export default function App() {
                     <option value="">Mis Datos (Personal)</option>
                     <option value="global">Resumen Equipo (Global)</option>
                     {teamUsers.map(u => (
-                      <option key={u.user_id} value={u.user_id}>{u.email}</option>
+                      <option key={u.user_id} value={u.email}>{u.email}</option>
                     ))}
                   </select>
                   <ChevronDown size={14} className="absolute right-0 top-1/2 -translate-y-1/2 text-[#364649]/40 pointer-events-none" />

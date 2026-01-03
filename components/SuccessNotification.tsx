@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import ReactDOM from 'react-dom';
 
 interface SuccessNotificationProps {
     isVisible: boolean;
@@ -35,11 +36,11 @@ export default function SuccessNotification({
 
     if (!isVisible) return null;
 
-    return (
+    const modalContent = (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center">
             {/* Backdrop */}
             <div
-                className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+                className="absolute inset-0 bg-[#364649]/20 backdrop-blur-[3px]"
                 onClick={onClose}
             />
 
@@ -125,4 +126,6 @@ export default function SuccessNotification({
             `}</style>
         </div>
     );
+
+    return ReactDOM.createPortal(modalContent, document.body);
 }

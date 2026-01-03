@@ -1,5 +1,6 @@
 
 import React, { useState } from 'react';
+import ReactDOM from 'react-dom';
 import { PropertyRecord, MarketingLog, MarketingMetrics } from '../../types';
 import { X, Save, TrendingUp, BarChart3, Megaphone, Facebook, Instagram, MousePointer, Eye, MessageCircle, Info } from 'lucide-react';
 
@@ -55,8 +56,8 @@ const MarketingModal: React.FC<MarketingModalProps> = ({ property, logs, onSave,
         onSave(newLog);
     };
 
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in-up">
+    const modalContent = (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-[#364649]/20 backdrop-blur-[3px]">
             <div className="bg-[#E0D8CC] rounded-3xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden border border-white/20">
 
                 {/* Header */}
@@ -241,6 +242,8 @@ const MarketingModal: React.FC<MarketingModalProps> = ({ property, logs, onSave,
             </div>
         </div>
     );
+
+    return ReactDOM.createPortal(modalContent, document.body);
 };
 
 // Sub-components

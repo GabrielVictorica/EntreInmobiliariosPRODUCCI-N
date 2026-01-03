@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom';
 import { ClosingRecord, PropertyRecord, Currency, BuyerClientRecord } from '../../types';
 import { Save, DollarSign, Calendar, X, Building2, User, Globe, Users, ArrowRightLeft, Percent } from 'lucide-react';
 
@@ -190,8 +191,8 @@ const ClosingForm: React.FC<ClosingFormProps> = ({
 
     const selectedProperty = properties.find(p => p.id === propertyId);
 
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in-up">
+    const modalContent = (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-[#364649]/20 backdrop-blur-[3px]">
             <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl p-8 border border-white/20 relative max-h-[90vh] overflow-y-auto custom-scrollbar">
 
                 <div className="flex justify-between items-start mb-6">
@@ -351,6 +352,8 @@ const ClosingForm: React.FC<ClosingFormProps> = ({
             </div>
         </div>
     );
+
+    return ReactDOM.createPortal(modalContent, document.body);
 };
 
 export default ClosingForm;

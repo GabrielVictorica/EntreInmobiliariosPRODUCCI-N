@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom';
 import { X, Clock, MapPin, AlignLeft, Calendar as CalendarIcon, Type, Palette } from 'lucide-react';
 
 interface CreateEventModalProps {
@@ -105,8 +106,8 @@ export default function CreateEventModal({ isOpen, onClose, onSubmit, initialDat
         }
     };
 
-    return (
-        <div className="fixed inset-0 bg-[#364649]/60 z-50 flex items-center justify-center p-4 backdrop-blur-md animate-fade-in">
+    const modalContent = (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-[#364649]/20 backdrop-blur-[3px]">
             <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden animate-scale-in border border-[#364649]/10 max-h-[90vh] overflow-y-auto custom-scrollbar">
                 {/* Header */}
                 <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
@@ -267,4 +268,6 @@ export default function CreateEventModal({ isOpen, onClose, onSubmit, initialDat
             </div>
         </div>
     );
+
+    return ReactDOM.createPortal(modalContent, document.body);
 }
