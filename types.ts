@@ -378,3 +378,4 @@ export interface KPIDashboardRow {
   annual_billing: number;
   monthly_need: number;
 }
+

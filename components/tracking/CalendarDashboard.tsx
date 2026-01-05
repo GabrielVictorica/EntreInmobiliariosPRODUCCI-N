@@ -158,7 +158,6 @@ export default function CalendarDashboard({
     useEffect(() => {
         setSession(propSession);
         if (propSession?.provider_token) {
-            console.log(">>> [Calendar] Provider token found in session");
             setGoogleAccessToken(propSession.provider_token);
             setIsSynced(true);
             saveGoogleToken(propSession.user.id, propSession.provider_token, propSession.provider_refresh_token);
@@ -171,6 +170,25 @@ export default function CalendarDashboard({
             if (refreshToken) updates.refresh_token = refreshToken;
             await supabase.from('user_integrations').upsert(updates, { onConflict: 'user_id, provider' });
         } catch (error) { console.error(error); }
+    };
+
+    // Local state for calendar view events (separate from global Home events)
+    const [localEvents, setLocalEvents] = useState<any[]>(googleEvents);
+
+    // Helper to check if we're viewing the current week
+    const isCurrentWeek = () => {
+        const today = new Date();
+        const todayMonday = new Date(today);
+        const dayOfWeek = today.getDay();
+        const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+        todayMonday.setDate(today.getDate() + mondayOffset);
+        todayMonday.setHours(0, 0, 0, 0);
+
+        const viewMonday = new Date(currentDate);
+        viewMonday.setDate(viewMonday.getDate() - viewMonday.getDay() + 1);
+        viewMonday.setHours(0, 0, 0, 0);
+
+        return todayMonday.getTime() === viewMonday.getTime();
     };
 
     const listGoogleEvents = async (token?: string) => {
@@ -198,17 +216,28 @@ export default function CalendarDashboard({
                 throw new Error('Failed to fetch events');
             }
             const data = await response.json();
-            onEventsChange(data.items || []);
+            const events = data.items || [];
+
+            // Always update local state for calendar display
+            setLocalEvents(events);
+
+            // Only update global state if viewing current week (for Home sync)
+            if (isCurrentWeek()) {
+                onEventsChange(events);
+            }
         } catch (error) { console.error(error); }
     };
 
     const updateEventTime = async (eventId: string, newEnd: Date) => {
         try {
-            const updatedEvents = googleEvents.map(e => {
+            const updatedEvents = localEvents.map(e => {
                 if (e.id === eventId) return { ...e, end: { ...e.end, dateTime: newEnd.toISOString() } };
                 return e;
             });
-            onEventsChange(updatedEvents);
+            setLocalEvents(updatedEvents);
+            if (isCurrentWeek()) {
+                onEventsChange(updatedEvents);
+            }
             await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
                 method: 'PATCH',
                 headers: { 'Authorization': `Bearer ${googleAccessToken}`, 'Content-Type': 'application/json' },
@@ -220,9 +249,19 @@ export default function CalendarDashboard({
         }
     }
 
+    // Sync local events with global when component mounts (use global as initial)
     useEffect(() => {
-        if (isSynced && googleAccessToken) listGoogleEvents();
-    }, [isSynced, currentDate, googleAccessToken]);
+        if (googleEvents.length > 0 && localEvents.length === 0) {
+            setLocalEvents(googleEvents);
+        }
+    }, [googleEvents]);
+
+    // Load events when entering calendar view
+    useEffect(() => {
+        if (isSynced && googleAccessToken) {
+            listGoogleEvents();
+        }
+    }, [isSynced, googleAccessToken, currentDate]);
 
     const handleEventSubmit = async (eventData: any) => {
         if (!googleAccessToken) { alert('Sincroniza primero.'); return; }
@@ -292,7 +331,7 @@ export default function CalendarDashboard({
     const getEventsForDay = (day: Date) => {
         const dayVisits = visits.filter(v => isSameDay(day, v.date));
         const dayActivities = activities.filter(a => isSameDay(day, a.date));
-        const rawGoogleEvents = googleEvents.filter((e: any) => {
+        const rawGoogleEvents = localEvents.filter((e: any) => {
             const eventDate = e.start.dateTime || e.start.date;
             const target = new Date(eventDate);
             return day.getDate() === target.getDate() && day.getMonth() === target.getMonth() && day.getFullYear() === target.getFullYear();

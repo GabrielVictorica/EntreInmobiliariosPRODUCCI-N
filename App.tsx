@@ -35,7 +35,7 @@ import ObjectivesDashboard from './components/tracking/ObjectivesDashboard';
 import WeeklyDashboard from './components/tracking/WeeklyDashboard';
 import ClosingsDashboard from './components/tracking/ClosingsDashboard';
 import CalendarDashboard from './components/tracking/CalendarDashboard';
-import HabitsDashboard from './components/tracking/HabitsDashboard';
+
 import SuccessNotification from './components/SuccessNotification';
 import WelcomeScreen from './components/WelcomeScreen';
 
@@ -483,7 +483,7 @@ export default function App() {
   const [session, setSession] = useState<any>(null);
 
   // Navigation State
-  const [view, setView] = useState<'home' | 'dashboard' | 'form' | 'properties-list' | 'property-form' | 'buyer-clients-list' | 'buyer-client-form' | 'buyer-searches-list' | 'buyer-search-form' | 'visits-list' | 'visit-form' | 'my-week' | 'objectives' | 'closings' | 'calendar' | 'metrics-home' | 'metrics-control' | 'habits'>('metrics-home');
+  const [view, setView] = useState<'home' | 'dashboard' | 'form' | 'properties-list' | 'property-form' | 'buyer-clients-list' | 'buyer-client-form' | 'buyer-searches-list' | 'buyer-search-form' | 'visits-list' | 'visit-form' | 'my-week' | 'objectives' | 'closings' | 'calendar' | 'metrics-home' | 'metrics-control'>('metrics-home');
   const [viewParams, setViewParams] = useState<any>(null);
   const [returnTo, setReturnTo] = useState<{ view: string, params?: any } | null>(null);
 
@@ -519,7 +519,7 @@ export default function App() {
       setExpandedGroup('sellers');
     } else if (['buyer-clients-list', 'buyer-client-form', 'buyer-searches-list', 'buyer-search-form', 'visits-list', 'visit-form'].includes(newView)) {
       setExpandedGroup('buyers');
-    } else if (['my-week', 'objectives', 'closings', 'habits'].includes(newView)) {
+    } else if (['my-week', 'objectives', 'closings'].includes(newView)) {
       setExpandedGroup('trakeo');
     } else if (['home', 'metrics-home', 'metrics-control'].includes(newView)) {
       setExpandedGroup('metrics');
@@ -562,7 +562,6 @@ export default function App() {
 
 
   const [loading, setLoading] = useState(true);
-  const [debugError, setDebugError] = useState<string | null>(null); // DEBUG: Show visible errors
   const [showSuccessNotification, setShowSuccessNotification] = useState(false);
   const [hasUnsavedGoals, setHasUnsavedGoals] = useState(false);
 
@@ -629,7 +628,6 @@ export default function App() {
 
       if (response.ok) {
         const data = await response.json();
-        console.log(">>> [DEBUG] fetchKPIs received data:", data?.length || 0, "rows");
 
         if (Array.isArray(data)) {
           // Ensure numeric types are actually numbers and handle falsy values
@@ -751,7 +749,7 @@ export default function App() {
         }
       }
     } catch (e) {
-      console.error(`[DEBUG] Error fetching goals for year ${year}:`, e);
+      // Silent fail - goals will use defaults
     }
     return null;
   };
@@ -768,7 +766,7 @@ export default function App() {
         }
       }
     } catch (e) {
-      console.error('[DEBUG] Error loading goals cache from localStorage:', e);
+      // Silent fail - cache will be rebuilt
     }
   }, []);
 
@@ -788,7 +786,7 @@ export default function App() {
       try {
         localStorage.setItem('goals_cache', JSON.stringify(goalsCacheRef.current));
       } catch (e) {
-        console.error('[DEBUG] Error saving goals cache to localStorage:', e);
+        // Silent fail - cache save is non-critical
       }
 
       if (goalsCacheRef.current[selectedYear]) {
@@ -960,7 +958,6 @@ export default function App() {
           if (teamResponse.ok) {
             const teamData = await teamResponse.json();
             setTeamUsers(teamData || []);
-            console.log('>>> Team users loaded:', teamData?.length || 0);
           }
         } else {
           setTeamUsers([]);
@@ -1075,43 +1072,74 @@ export default function App() {
       const isGlobal = isMom && teamUser === 'global';
       const targetUserId = isMom && teamUser && teamUser !== 'global' ? teamUser : uid;
 
-      console.log(">>> [DEBUG] loadAllData: starting parallel fetch...");
+      // 1. Closings
+      const closingsData = await fetch(`${SUPABASE_URL}/rest/v1/closing_logs?select=*&order=date.desc`, {
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${token}`
+        }
+      }).then(async res => {
+        if (res.ok) return await res.json();
+        console.error("Error fetching closings:", await res.text());
+        return [];
+      }).catch(e => {
+        console.error("Closings fetch exception:", e);
+        return [];
+      });
 
-      // PARALLEL FETCH STRATEGY: Start all vital requests at once
-      const vitalPromises = [
-        // 1. Closings
-        fetch(`${SUPABASE_URL}/rest/v1/closing_logs?select=*&order=date.desc`, {
-          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${token}` }
-        }).then(r => r.json()),
+      // 2. Visits
+      let visitsRes: { data: any[] } = { data: [] };
+      try {
+        const visitsResponse = await fetch(`${SUPABASE_URL}/rest/v1/visits?select=*`, {
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (visitsResponse.ok) {
+          visitsRes = { data: await visitsResponse.json() || [] };
+        } else {
+          console.error("Visits fetch error:", await visitsResponse.text());
+        }
+      } catch (e) {
+        console.error("Visits fetch exception:", e);
+      }
 
-        // 2. Visits
-        supabase.from('visits').select('*'),
+      // 3. Activities
+      const activitiesData = await fetch(`${SUPABASE_URL}/rest/v1/activities?select=*&order=date.desc`, {
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${token}`
+        }
+      }).then(async res => {
+        if (res.ok) return await res.json();
+        console.error("Error fetching activities:", await res.text());
+        return [];
+      }).catch(e => {
+        console.error("Activities fetch exception:", e);
+        return [];
+      });
 
-        // 3. Activities
-        fetch(`${SUPABASE_URL}/rest/v1/activities?select=*&order=date.desc`, {
-          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${token}` }
-        }).then(r => r.json()),
-
-        // 4. KPIs (View)
-        fetchKPIs(session, isMom, teamUser)
-      ];
-
-      // Wait for the most critical ones before unblocking UI
-      const results = await Promise.all(vitalPromises);
-      const [closingsData, visitsRes, activitiesData] = results;
+      // 4. KPIs (View)
+      await fetchKPIs(session, isMom, teamUser);
 
       // Process Closings
       if (Array.isArray(closingsData)) {
         let mapped = closingsData.map(x => {
           try { return mapClosingFromDB(x); }
-          catch (e) { return null; }
+          catch (e) {
+            console.error("Map error for closing:", x.id, e);
+            return null;
+          }
         }).filter((x): x is ClosingRecord => x !== null);
 
+        // Filter by user based on role
         if (isMom && teamUser && teamUser !== 'global') {
           mapped = mapped.filter(x => x.userId === teamUser);
-        } else if (!isGlobal) {
+        } else if (!isMom) {
           mapped = mapped.filter(x => x.userId === uid);
         }
+
         setClosingLogs(mapped);
       }
 
@@ -1220,7 +1248,6 @@ export default function App() {
 
     } catch (error: any) {
       console.error("Critical Data Load Error:", error.message);
-      setDebugError("Error de Carga: " + error.message);
     } finally {
       setIsAuthChecking(false);
       setLoading(false);
@@ -1231,30 +1258,41 @@ export default function App() {
 
   const fetchGoogleEvents = async (currentSession: any) => {
     if (!currentSession?.user?.id) return;
-    console.log(">>> [App] fetchGoogleEvents started for user:", currentSession.user.id);
     setIsCheckingGoogleSync(true);
 
+    const SUPABASE_URL = 'https://whfoflccshoztjlesnhh.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoZm9mbGNjc2hvenRqbGVzbmhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MzUwMzEsImV4cCI6MjA4MTMxMTAzMX0.rPQdO1qCovC9WP3ttlDOArvTI7I15lg7fnOPkJseDos';
+    const authToken = currentSession.access_token || SUPABASE_KEY;
+
     try {
-      // 1. Get token from DB
-      const { data: integ } = await supabase
-        .from('user_integrations')
-        .select('access_token, refresh_token')
-        .eq('user_id', currentSession.user.id)
-        .eq('provider', 'google_calendar')
-        .single();
+      // Get token from DB
+      const integResponse = await fetch(
+        `${SUPABASE_URL}/rest/v1/user_integrations?user_id=eq.${currentSession.user.id}&provider=eq.google_calendar&select=access_token,refresh_token`,
+        {
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${authToken}`
+          }
+        }
+      );
+
+      let integ: any = null;
+      if (integResponse.ok) {
+        const integData = await integResponse.json();
+        integ = integData && integData.length > 0 ? integData[0] : null;
+      }
 
       let token = integ?.access_token;
       if (!token) {
-        console.log(">>> [App] No Google token found in user_integrations");
         setIsGoogleSynced(false);
+        setIsCheckingGoogleSync(false);
         return;
       }
 
-      console.log(">>> [App] Token found, setting states and fetching events...");
       setGoogleAccessToken(token);
       setIsGoogleSynced(true);
 
-      // 2. Fetch events for current week
+      // Fetch events for current week
       const now = new Date();
       const dayOfWeek = now.getDay();
       const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
@@ -1269,14 +1307,10 @@ export default function App() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
-      console.log(">>> [App] Google API response status:", response.status);
-
       if (response.status === 401) {
-        console.log(">>> [App] Token expired (401), attempting global refresh...");
         setIsGoogleSynced(false);
         // Attempt refresh via Edge Function
         const { data: refreshData } = await supabase.functions.invoke('refresh-google-token');
-        console.log(">>> [App] Refresh result:", refreshData ? "success" : "failure");
         if (refreshData?.access_token) {
           setGoogleAccessToken(refreshData.access_token);
           setIsGoogleSynced(true);
@@ -1290,11 +1324,10 @@ export default function App() {
         }
       } else if (response.ok) {
         const data = await response.json();
-        console.log(">>> [App] Events fetched successfully:", data.items?.length || 0);
         setGoogleEvents(data.items || []);
       }
     } catch (error) {
-      console.error("Error fetching Google Events for Home:", error);
+      console.error("Error fetching Google Events:", error);
     } finally {
       setIsCheckingGoogleSync(false);
     }
@@ -1334,7 +1367,6 @@ export default function App() {
       const hashParams = new URLSearchParams(window.location.hash.slice(1)); // remove #
 
       if (urlParams.get('tab') === 'calendar' || hashParams.get('tab') === 'calendar') {
-        console.log(">>> Redirect detection: Found tab=calendar, navigating...");
         setView('calendar');
         setExpandedGroup('trakeo');
         // Clean up the URL
@@ -1592,9 +1624,9 @@ export default function App() {
         throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
-      console.log(">>> Actividad guardada exitosamente");
+      // Success - no action needed
     } catch (e: any) {
-      console.error(">>> ERROR GUARDANDO ACTIVIDAD:", e);
+      console.error("Error guardando actividad:", e);
       // Revert optimistic update
       setActivities(prev => prev.filter(a => a.id !== act.id));
       alert("Error guardando actividad: " + (e.message || JSON.stringify(e)));
@@ -1623,9 +1655,9 @@ export default function App() {
         throw new Error(`HTTP ${response.status}`);
       }
 
-      console.log(">>> Actividad eliminada exitosamente");
+      // Success - no action needed
     } catch (e: any) {
-      console.error(">>> ERROR ELIMINANDO ACTIVIDAD:", e);
+      console.error("Error eliminando actividad:", e);
       // Revert optimistic update
       setActivities(previousActivities);
       alert("Error eliminando actividad: " + (e.message || JSON.stringify(e)));
@@ -1659,56 +1691,18 @@ export default function App() {
       const { id, ...closingData } = closing;
       const dbPayload = mapClosingToDB(closing, session.user.id);
 
-      // DIAGNOSTIC: Log the payload being sent
-      console.log("=== CLOSING PAYLOAD DIAGNOSTIC ===");
-      console.log("Payload:", JSON.stringify(dbPayload, null, 2));
-
       if (isNew) {
-        // INSERT
-        // If isNew, we now send the client-generated UUID to Supabase, so no need to delete ID.
-        console.log(">>> ABOUT TO CALL SUPABASE INSERT...");
-        console.log(">>> Supabase client exists:", !!supabase);
+        // INSERT using Supabase SDK
+        const { data, error } = await supabase
+          .from('closing_logs')
+          .insert(dbPayload)
+          .select()
+          .single();
 
-        try {
-          // Use native fetch instead of Supabase client to debug
-          console.log(">>> Attempting INSERT via native fetch...");
+        if (error) throw error;
 
-          const SUPABASE_URL = 'https://whfoflccshoztjlesnhh.supabase.co';
-          const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoZm9mbGNjc2hvenRqbGVzbmhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MzUwMzEsImV4cCI6MjA4MTMxMTAzMX0.rPQdO1qCovC9WP3ttlDOArvTI7I15lg7fnOPkJseDos';
-
-          const response = await fetch(`${SUPABASE_URL}/rest/v1/closing_logs`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'apikey': SUPABASE_KEY,
-              'Authorization': `Bearer ${session?.access_token || SUPABASE_KEY}`,
-              'Prefer': 'return=representation'
-            },
-            body: JSON.stringify(dbPayload)
-          });
-
-          console.log(">>> Fetch completed with status:", response.status);
-          const responseText = await response.text();
-          console.log(">>> Response body:", responseText);
-
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${responseText}`);
-          }
-
-          console.log(">>> INSERT SUCCESS!");
-        } catch (insertError: any) {
-          console.error(">>> INSERT FAILED WITH EXCEPTION:", insertError);
-          alert("Error en INSERT: " + (insertError.message || JSON.stringify(insertError)));
-          // Revert optimistic update
-          setClosingLogs(prev => prev.filter(c => c.id !== closing.id));
-          return; // Exit early on error
-        }
-
-        // If we get here, insert was successful - now handle the rest
-        // Reload the data to get the fresh record
-        const { data: freshData } = await supabase.from('closing_logs').select().eq('id', dbPayload.id).single();
-        if (freshData) {
-          const realRecord = mapClosingFromDB(freshData);
+        if (data) {
+          const realRecord = mapClosingFromDB(data);
           setClosingLogs(prev => prev.map(c => c.id === closing.id ? realRecord : c));
 
           // Auto-create Activity 'cierre' (Only for NEW records)
@@ -1754,20 +1748,24 @@ export default function App() {
       // Revert optimistic update
       if (isNew) {
         setClosingLogs(prev => prev.filter(c => c.id !== closing.id));
-      } else {
-        // Hard to revert update without backup, but at least warn user
       }
       alert(`Error guardando el cierre. Intenta de nuevo.\nDetalle: ${err.message || JSON.stringify(err)}`);
     }
   };
 
   const handleDeleteClosing = async (id: string) => {
-    if (!confirm('¿Estás seguro de eliminar este cierre? Esta acción no se puede deshacer.')) return;
+    // Optimistic update
+    const previousClosings = [...closingLogs];
     setClosingLogs(prev => prev.filter(c => c.id !== id));
+
     try {
-      await supabase.from('closing_logs').delete().eq('id', id);
-    } catch (e) {
+      const { error } = await supabase.from('closing_logs').delete().eq('id', id);
+      if (error) throw error;
+    } catch (e: any) {
       console.error("Error deleting closing:", e);
+      // Revert on error
+      setClosingLogs(previousClosings);
+      alert("Error eliminando el cierre: " + (e.message || "Error desconocido"));
     }
   };
 
@@ -2233,12 +2231,7 @@ export default function App() {
           isCheckingSync={isCheckingGoogleSync}
         />;
 
-      case 'habits':
-        return <HabitsDashboard
-          session={session}
-          isMother={isMother}
-          selectedTeamUser={selectedTeamUser}
-        />;
+
 
       default: return null;
     }
@@ -2342,7 +2335,7 @@ export default function App() {
                     <NavItem icon={<CalendarDays size={18} />} label="Mí Semana" active={view === 'my-week'} onClick={() => navigateTo('my-week')} small />
                     <NavItem icon={<DollarSign size={18} />} label="Cierres" active={view === 'closings'} onClick={() => navigateTo('closings')} small />
                     <NavItem icon={<Flag size={18} />} label="Objetivos" active={view === 'objectives'} onClick={() => navigateTo('objectives')} small />
-                    <NavItem icon={<Target size={18} />} label="Tus Hábitos" active={view === 'habits'} onClick={() => navigateTo('habits')} small />
+
                   </div>
                 </div>
               </div>
@@ -2361,20 +2354,9 @@ export default function App() {
           </div>
         </aside>
 
+
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto relative no-scrollbar">
-          {/* DEBUG BANNER */}
-          {debugError && (
-            <div className="bg-red-600 text-white px-6 py-2 text-sm font-bold flex justify-between items-center shadow-md animate-pulse z-50 sticky top-0">
-              <span className="flex items-center gap-2">⚠️ {debugError}</span>
-              <button
-                onClick={() => window.location.reload()}
-                className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded text-xs uppercase"
-              >
-                Recargar
-              </button>
-            </div>
-          )}
 
           <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-[#364649]/10 px-8 py-4 flex justify-between items-center shadow-sm">
             {/* Header Content Omitted for brevity, assuming standard header */}
@@ -2404,8 +2386,9 @@ export default function App() {
                     <option value="">Mis Datos (Personal)</option>
                     <option value="global">Resumen Equipo (Global)</option>
                     {teamUsers.map(u => (
-                      <option key={u.user_id} value={u.email}>{u.email}</option>
+                      <option key={u.user_id} value={u.user_id}>{u.email}</option>
                     ))}
+
                   </select>
                   <ChevronDown size={14} className="absolute right-0 top-1/2 -translate-y-1/2 text-[#364649]/40 pointer-events-none" />
                 </div>

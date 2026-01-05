@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ClosingRecord, ActivityRecord, PropertyRecord, ClientRecord, BuyerClientRecord } from '../../types';
-import { Plus, DollarSign, Award, Percent, TrendingUp, TrendingDown, Calendar, Search, ExternalLink, User, ThumbsUp, AlertTriangle, CheckCircle, Lightbulb } from 'lucide-react';
+import { Plus, DollarSign, Award, Percent, TrendingUp, TrendingDown, Calendar, Search, ExternalLink, User, ThumbsUp, AlertTriangle, CheckCircle, Lightbulb, Pencil, Trash2, X } from 'lucide-react';
 import ClosingForm from './ClosingForm';
 
 interface ClosingsDashboardProps {
@@ -27,6 +27,7 @@ const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [editingClosing, setEditingClosing] = useState<ClosingRecord | null>(null);
     const [commissionSplit, setCommissionSplit] = useState(45);
+    const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null); // For delete confirmation modal
 
     // Local state for editing rate (debounced)
     const [localRate, setLocalRate] = useState(exchangeRate.toString());
@@ -62,12 +63,26 @@ const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
 
     // --- FILTER BY YEAR ---
     const filteredClosings = closings.filter(c => {
-        return new Date(c.date).getFullYear() === currentYear;
+        if (!c.date) return false;
+        // Robust parsing: Handle SQL strings with spaces instead of T, and potentially timezone data
+        let dateStr = c.date;
+        if (dateStr.includes(' ') && !dateStr.includes('T')) {
+            dateStr = dateStr.replace(' ', 'T');
+        }
+
+        // Force treat as local date to compare year correctly
+        const d = new Date(dateStr);
+        // Correctly handle UTC dates if needed depending on how they are stored vs local selection
+        // But for year comparison, getFullYear() usually suffices if timezone diff doesn't shift year.
+
+        return !isNaN(d.getTime()) && d.getFullYear() === currentYear;
     });
 
     const filteredPLPB = activities.filter(a => {
-        const d = new Date(a.date);
-        return (a.type === 'pre_listing' || a.type === 'pre_buying') && d.getFullYear() === currentYear;
+        if (!a.date) return false;
+        const dateStr = a.date.includes(' ') && !a.date.includes('T') ? a.date.replace(' ', 'T') : a.date;
+        const d = new Date(dateStr);
+        return (a.type === 'pre_listing' || a.type === 'pre_buying') && !isNaN(d.getTime()) && d.getFullYear() === currentYear;
     });
 
     // --- METRICS CALCULATION (YEARLY) ---
@@ -219,8 +234,9 @@ const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
                                 </tr>
                             ) : (
                                 filteredClosings.map((c) => {
-                                    const dateObj = new Date(c.date);
-                                    const month = dateObj.toLocaleString('es-ES', { month: 'long' });
+                                    const dateStr = c.date && c.date.includes(' ') && !c.date.includes('T') ? c.date.replace(' ', 'T') : c.date;
+                                    const dateObj = new Date(dateStr);
+                                    const month = !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('es-ES', { month: 'long' }) : 'Mes Desc.';
                                     const propName = getPropertyName(c);
                                     const buyerName = getBuyerName(c);
 
@@ -252,13 +268,22 @@ const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
                                                 {c.currency} {c.agentHonorarium.toLocaleString()}
                                             </td>
                                             <td className="px-4 py-3 text-center border-t border-[#364649]/5">
-                                                <button
-                                                    onClick={() => handleEdit(c)}
-                                                    className="text-[#364649]/40 hover:text-[#AA895F] transition-colors p-2 hover:bg-[#AA895F]/10 rounded-lg"
-                                                    title="Editar Cierre"
-                                                >
-                                                    <ExternalLink size={16} />
-                                                </button>
+                                                <div className="flex items-center justify-center gap-1">
+                                                    <button
+                                                        onClick={() => handleEdit(c)}
+                                                        className="text-[#364649]/40 hover:text-[#AA895F] transition-colors p-2 hover:bg-[#AA895F]/10 rounded-lg"
+                                                        title="Editar Cierre"
+                                                    >
+                                                        <Pencil size={16} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setDeleteConfirmId(c.id)}
+                                                        className="text-[#364649]/40 hover:text-rose-500 transition-colors p-2 hover:bg-rose-50 rounded-lg"
+                                                        title="Eliminar Cierre"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -297,6 +322,53 @@ const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
                     initialData={editingClosing}
                     exchangeRate={exchangeRate}
                 />
+            )}
+
+            {/* DELETE CONFIRMATION MODAL */}
+            {deleteConfirmId && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" style={{ animation: 'fadeIn 0.2s ease-out' }}>
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 transform transition-all scale-100" style={{ animation: 'scaleUp 0.2s ease-out' }}>
+                        <div className="flex justify-between items-start mb-4">
+                            <div className="flex items-center gap-3 text-rose-600">
+                                <div className="p-2 bg-rose-50 rounded-lg">
+                                    <AlertTriangle size={24} />
+                                </div>
+                                <h3 className="text-lg font-bold text-[#364649]">¿Eliminar Cierre?</h3>
+                            </div>
+                            <button
+                                onClick={() => setDeleteConfirmId(null)}
+                                className="text-gray-400 hover:text-gray-600 p-1 hover:bg-gray-100 rounded-full transition-colors"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <p className="text-[#364649]/70 mb-6 font-medium text-sm">
+                            Esta acción eliminará el registro permanentemente. <br />
+                            <span className="text-rose-600 font-bold">No se puede deshacer.</span>
+                        </p>
+
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setDeleteConfirmId(null)}
+                                className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-[#364649] font-bold rounded-xl transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={() => {
+                                    if (deleteConfirmId) {
+                                        onDeleteClosing(deleteConfirmId);
+                                        setDeleteConfirmId(null);
+                                    }
+                                }}
+                                className="flex-1 px-4 py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl transition-colors shadow-lg shadow-rose-600/20"
+                            >
+                                Eliminar
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
         </div>

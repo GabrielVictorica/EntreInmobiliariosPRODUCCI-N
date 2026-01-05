@@ -103,12 +103,11 @@ function ObjectivesDashboard({
                     accessToken = sessionData.access_token || SUPABASE_KEY;
                     userId = sessionData.user?.id || '';
                 } catch (e) {
-                    console.error('[DEBUG] Error parsing session:', e);
+                    // Silent parse error
                 }
             }
 
             if (!userId) {
-                console.error('[DEBUG] No user ID found for history');
                 setLoadingHistory(false);
                 return;
             }
@@ -128,10 +127,10 @@ function ObjectivesDashboard({
                 const data = await response.json();
                 setHistoryData(data || []);
             } else {
-                console.error('[DEBUG] History fetch failed:', response.status, await response.text());
+                // Silent fail on history fetch
             }
         } catch (e) {
-            console.error('[DEBUG] Error loading history:', e);
+            // Silent fail on history load
         }
 
         setLoadingHistory(false);
