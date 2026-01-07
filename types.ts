@@ -379,3 +379,62 @@ export interface KPIDashboardRow {
   monthly_need: number;
 }
 
+// --- HABIT TRACKER MODULE TYPES ---
+
+export type ScheduleType = 'flexible' | 'fixed';
+export type PreferredBlock = 'morning' | 'afternoon' | 'evening' | 'anytime';
+export type CognitiveLoad = 'high' | 'medium' | 'low';
+export type DayOfWeek = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+
+export interface HabitCategory {
+  id: number;
+  name: string;
+  emoji: string;
+  color: string;
+}
+
+export interface Habit {
+  id: string;
+  userId?: string;
+  name: string;
+  categoryId: number;
+  category?: HabitCategory; // Populated via join
+  frequency: DayOfWeek[];
+  scheduleType: ScheduleType;
+  preferredBlock: PreferredBlock;
+  fixedTime?: string; // HH:mm
+  estimatedDuration: number; // minutos
+  cognitiveLoad: CognitiveLoad;
+  active: boolean;
+  icon: string;
+  googleEventId?: string | null;  // For calendar sync
+  // Rachas (desnormalizadas, actualizadas por trigger)
+  currentStreak: number;
+  longestStreak: number;
+  lastCompletedDate?: string; // YYYY-MM-DD
+  // Timestamps
+  createdAt: string;
+  endDate?: string;
+}
+
+export interface DailyLog {
+  id: string;
+  userId?: string;
+  date: string; // YYYY-MM-DD
+  moodScore?: number; // 1-5
+  energyScore?: number; // 1-10
+  tags: string[];
+  notes?: string;
+  createdAt: string;
+}
+
+export interface HabitCompletion {
+  id: string;
+  habitId: string;
+  dailyLogId: string;
+  targetDate: string; // YYYY-MM-DD (día lógico)
+  completedAt: string; // ISO timestamp
+  value?: number;
+  // Populated via join
+  habit?: Habit;
+}

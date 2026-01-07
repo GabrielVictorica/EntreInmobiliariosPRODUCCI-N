@@ -31,6 +31,7 @@ interface MetricsWrapperProps {
     selectedTab?: 'home' | 'control';
     financialGoals?: any;
     onUpdateGoals?: (newGoals: any) => void;
+    targetUserId?: string; // Passed from App.tsx
 
     // Year Props
     availableYears: number[];
@@ -94,7 +95,8 @@ export default function MetricsWrapper({
     displayClosingRate,
     displayClosingRatioDisplay,
     displayIsStandardRate,
-    googleEvents = [] // Added for agenda connection
+    googleEvents = [], // Added for agenda connection
+    targetUserId
 }: MetricsWrapperProps) {
     const [internalTab, setInternalTab] = useState<'home' | 'control'>('home');
 
@@ -342,6 +344,7 @@ export default function MetricsWrapper({
                     currentYear={currentYear}
                     isHistoricalView={isHistoricalView}
                     googleEvents={googleEvents}
+                    targetUserId={targetUserId}
                 />
             )}
 

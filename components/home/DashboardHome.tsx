@@ -11,6 +11,9 @@ import {
 } from 'lucide-react';
 import { ClientRecord, PropertyRecord, VisitRecord, MarketingLog, BuyerClientRecord, ActivityRecord } from '../../types';
 
+// ... imports
+import { supabase } from '../../services/supabaseClient';
+
 interface DashboardHomeProps {
     clients: ClientRecord[];
     properties: PropertyRecord[];
@@ -22,14 +25,20 @@ interface DashboardHomeProps {
     displayMetrics?: {
         transactionsNeeded: number;
         transactionsDone: number;
+        transactionsDoneHistorical?: number; // Added for Historical Comparison
         greenMeetingsTarget: number;
         greenMeetingsDone: number;
+        greenMeetingsDoneHistorical?: number; // Added for Historical Comparison
         pocketFees: number;
         pocketFeesTarget: number;
         criticalNumberTarget: number;
         criticalNumberDone: number;
+        criticalNumberDoneHistorical?: number; // Added for Historical Comparison
         activeProperties: number;
         greenMeetingsWeeklyTotal: number; // Suma total de actividades de la semana
+        honorariosPromedio?: number;
+        productividadActividad?: number;
+        isDataReliable?: boolean;
     };
     displayBilling?: number; // Actual Billing
     billingGoal?: number; // Goal Billing
@@ -41,6 +50,7 @@ interface DashboardHomeProps {
     currentYear: number;
     isHistoricalView?: boolean;
     googleEvents?: any[]; // Added for agenda connection
+    targetUserId?: string; // ID for fetching habits
 }
 
 // --- COMPONENTS ---
@@ -84,8 +94,195 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
     clients, properties, visits, marketingLogs, buyers, activities,
     displayMetrics, displayBilling = 0, billingGoal = 0, pipelineValue = 0,
     captationGoals, currentYear, isHistoricalView,
-    googleEvents = []
+    googleEvents = [], targetUserId
 }) => {
+    // Agenda Expand State
+    const [isAgendaExpanded, setIsAgendaExpanded] = useState(false);
+
+    // ========== COMPLETION STATE ==========
+    const [habits, setHabits] = useState<{ id: string; name: string }[]>([]);
+    const [dailyLogId, setDailyLogId] = useState<string | null>(null);
+    // Track ALL completed events by Google Event ID (unique per event instance)
+    const [completedEventIds, setCompletedEventIds] = useState<Set<string>>(new Set());
+
+    // Load habits and completed events
+    const fetchCompletionData = async () => {
+        if (!targetUserId) return;
+        const today = new Date().toISOString().split('T')[0];
+
+        // 1. Fetch active habits (for Supabase sync)
+        const { data: habitsData } = await supabase
+            .from('habits')
+            .select('id, name')
+            .eq('user_id', targetUserId)
+            .eq('active', true);
+
+        if (habitsData) setHabits(habitsData);
+
+        // 2. Get daily log for today (for habit sync)
+        const { data: dailyLog } = await supabase
+            .from('daily_logs')
+            .select('id')
+            .eq('user_id', targetUserId)
+            .eq('date', today)
+            .maybeSingle();
+
+        if (dailyLog) setDailyLogId(dailyLog.id);
+
+        // 3. Load completed event IDs from localStorage
+        const stored = localStorage.getItem(`completedEvents_${targetUserId}`);
+        if (stored) {
+            try {
+                const parsed = JSON.parse(stored);
+                if (parsed.date === today && Array.isArray(parsed.ids)) {
+                    setCompletedEventIds(new Set(parsed.ids));
+                }
+            } catch (e) { }
+        }
+    };
+
+    React.useEffect(() => {
+        fetchCompletionData();
+    }, [targetUserId]);
+
+    // Auto-refresh when tab becomes visible (for cross-tab sync)
+    React.useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                fetchCompletionData();
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('focus', () => fetchCompletionData());
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('focus', () => { });
+        };
+    }, [targetUserId]);
+
+    // Save completed events to localStorage
+    React.useEffect(() => {
+        if (targetUserId && completedEventIds.size > 0) {
+            const today = new Date().toISOString().split('T')[0];
+            localStorage.setItem(`completedEvents_${targetUserId}`, JSON.stringify({
+                date: today,
+                ids: Array.from(completedEventIds)
+            }));
+        }
+    }, [completedEventIds, targetUserId]);
+
+    // Toggle event completion
+    const toggleEventCompletion = async (eventId: string, eventTitle: string, eventDate: string) => {
+        if (!eventId || !targetUserId) return;
+        const today = new Date().toISOString().split('T')[0];
+        const isToday = eventDate === today;
+        const isCompleted = completedEventIds.has(eventId);
+
+        // 1. Update visual state immediately (by unique event ID)
+        setCompletedEventIds(prev => {
+            const newSet = new Set(prev);
+            if (isCompleted) {
+                newSet.delete(eventId);
+            } else {
+                newSet.add(eventId);
+            }
+            return newSet;
+        });
+
+        // 2. If it's a habit event for TODAY, also sync to Supabase
+        if (isToday) {
+            // Normalize: remove emojis and extra whitespace for better matching
+            const normalizedTitle = eventTitle.replace(/[^\w\sáéíóúñü]/gi, '').trim().toLowerCase();
+
+            const matchedHabit = habits.find(h => {
+                const normalizedName = h.name.toLowerCase();
+                return normalizedTitle.includes(normalizedName) || normalizedName.includes(normalizedTitle);
+            });
+
+            console.log('[Habit Sync Debug]', {
+                eventTitle,
+                normalizedTitle,
+                habits: habits.map(h => h.name),
+                matchedHabit: matchedHabit?.name || 'NONE',
+                isToday,
+                isCompleted
+            });
+
+            if (matchedHabit) {
+                try {
+                    let currentLogId = dailyLogId;
+
+                    // Ensure daily log exists
+                    if (!currentLogId) {
+                        const { data: newLog, error: logError } = await supabase
+                            .from('daily_logs')
+                            .insert({ user_id: targetUserId, date: today })
+                            .select()
+                            .single();
+
+                        if (logError) {
+                            console.error('[Habit Sync] Error creating daily log:', logError);
+                            return;
+                        }
+
+                        if (newLog) {
+                            currentLogId = newLog.id;
+                            setDailyLogId(newLog.id);
+                        }
+                    }
+
+                    if (isCompleted) {
+                        // UNMARK from Supabase
+                        const { error: deleteError } = await supabase
+                            .from('habit_completions')
+                            .delete()
+                            .eq('daily_log_id', currentLogId)
+                            .eq('habit_id', matchedHabit.id);
+
+                        if (deleteError) {
+                            console.error('[Habit Sync] Error deleting completion:', deleteError);
+                        } else {
+                            console.log('[Habit Sync] Successfully UNMARKED habit:', matchedHabit.name);
+                            // Dispatch custom event for instant cross-component sync
+                            window.dispatchEvent(new CustomEvent('habitCompletionChanged', {
+                                detail: { habitId: matchedHabit.id, completed: false }
+                            }));
+                        }
+                    } else {
+                        // MARK in Supabase
+                        const { error: insertError } = await supabase
+                            .from('habit_completions')
+                            .insert({
+                                habit_id: matchedHabit.id,
+                                daily_log_id: currentLogId,
+                                target_date: today,
+                                completed_at: new Date().toISOString()
+                            });
+
+                        if (insertError) {
+                            console.error('[Habit Sync] Error inserting completion:', insertError);
+                        } else {
+                            console.log('[Habit Sync] Successfully MARKED habit:', matchedHabit.name);
+                            // Dispatch custom event for instant cross-component sync
+                            window.dispatchEvent(new CustomEvent('habitCompletionChanged', {
+                                detail: { habitId: matchedHabit.id, completed: true }
+                            }));
+                        }
+                    }
+                } catch (error) {
+                    console.error('[Habit Sync] Exception:', error);
+                }
+            }
+        }
+    };
+
+    // Helper to check if event is completed
+    const isEventCompleted = (eventId: string): boolean => {
+        return completedEventIds.has(eventId);
+    };
+
     const [selectedPropertyId, setSelectedPropertyId] = useState<string>('all');
     const isGlobal = selectedPropertyId === 'all';
 
@@ -169,6 +366,8 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
         );
     };
 
+
+
     return (
         <div className="space-y-8 pb-10">
             {/* FIRST LINE: STRATEGIC NUMBERS */}
@@ -233,15 +432,23 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
             </div>
 
             {/* SECOND LINE: WEEKLY AGENDA (MON-SUN) */}
-            <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100">
+            <div className={`bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100 transition-all duration-500 ease-in-out ${isAgendaExpanded ? '' : ''}`}>
                 <div className="flex justify-between items-center mb-6">
                     <div>
                         <h3 className="text-xl font-black text-[#364649]">Agenda Semanal</h3>
                         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1 text-left">Reuniones y Compromisos Programados</p>
                     </div>
+
+                    <button
+                        onClick={() => setIsAgendaExpanded(!isAgendaExpanded)}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-[#364649] transition-colors group"
+                    >
+                        <span className="text-xs font-black uppercase tracking-wider">{isAgendaExpanded ? 'Colapsar' : 'Ver Todo'}</span>
+                        <ChevronDown size={16} className={`text-[#AA895F] transition-transform duration-300 ${isAgendaExpanded ? 'rotate-180' : ''}`} />
+                    </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-7 gap-4 items-start">
                     {(() => {
                         const start = new Date();
                         const dayOfWeek = start.getDay();
@@ -264,35 +471,78 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                                     day.getMonth() === target.getMonth() &&
                                     day.getFullYear() === target.getFullYear();
                             }).map(e => {
-                                const eventTime = e.start.dateTime ? new Date(e.start.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Todo el día';
+                                const startDate = new Date(e.start.dateTime || e.start.date);
+                                const eventTime = e.start.dateTime ? startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Todo el día';
                                 return {
+                                    id: e.id,
                                     time: eventTime,
                                     title: e.summary || 'Sin título',
+                                    date: dayStr, // Add date for habit sync
                                     type: 'google',
-                                    color: getGoogleColor(e.colorId)
+                                    color: getGoogleColor(e.colorId),
+                                    timestamp: startDate.getTime()
                                 };
-                            }).sort((a, b) => a.time.localeCompare(b.time));
+                            }).sort((a, b) => a.timestamp - b.timestamp);
+
+                            const visibleEvents = isAgendaExpanded ? dayEvents : dayEvents.slice(0, 3);
+                            const hiddenCount = dayEvents.length - visibleEvents.length;
 
                             return (
-                                <div key={i} className={`flex flex-col rounded-3xl p-4 min-h-[180px] transition-all ${isToday ? 'bg-[#AA895F]/5 ring-2 ring-[#AA895F]/20' : 'bg-slate-50 border border-slate-100'}`}>
+                                <div key={i} className={`flex flex-col rounded-3xl p-4 transition-all duration-300 ${isToday ? 'bg-[#AA895F]/5 ring-2 ring-[#AA895F]/20' : 'bg-slate-50 border border-slate-100'} ${isAgendaExpanded ? 'min-h-[180px]' : 'h-[180px]'}`}>
                                     <div className="mb-3 border-b border-slate-200/50 pb-2">
                                         <p className={`text-[10px] font-black uppercase tracking-tighter ${isToday ? 'text-[#AA895F]' : 'text-slate-400'}`}>
                                             {day.toLocaleDateString('es-AR', { weekday: 'long' })}
                                         </p>
                                         <p className={`text-lg font-black ${isToday ? 'text-[#AA895F]' : 'text-[#364649]'}`}>{day.getDate()}</p>
                                     </div>
-                                    <div className="space-y-2 flex-grow overflow-y-auto max-h-[140px] custom-scrollbar pr-1">
-                                        {dayEvents.length > 0 ? dayEvents.map((ev: any, idx) => (
-                                            <div key={idx} className="bg-white p-2 rounded-xl shadow-sm border border-slate-100 flex flex-col items-start text-left">
-                                                <span
-                                                    className="text-[9px] font-black text-white px-1.5 py-0.5 rounded-md mb-1 shadow-sm"
-                                                    style={{ backgroundColor: ev.color }}
-                                                >
-                                                    {ev.time}
-                                                </span>
-                                                <p className="text-[10px] font-bold text-[#364649] leading-tight line-clamp-2">{ev.title}</p>
-                                            </div>
-                                        )) : (
+                                    <div className={`space-y-2 flex-grow ${isAgendaExpanded ? '' : 'overflow-hidden'}`}>
+                                        {visibleEvents.length > 0 ? (
+                                            <>
+                                                {visibleEvents.map((ev: any, idx) => {
+                                                    // Check if this event is completed (by unique event ID)
+                                                    const isCompleted = isEventCompleted(ev.id);
+
+                                                    return (
+                                                        <div
+                                                            key={ev.id || idx}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                if (ev.id) {
+                                                                    toggleEventCompletion(ev.id, ev.title, ev.date);
+                                                                }
+                                                            }}
+                                                            className={`bg-white p-2 rounded-xl shadow-sm border flex flex-col items-start text-left animate-fade-in-up transition-all duration-300 cursor-pointer hover:ring-2 hover:ring-[#AA895F]/50 hover:shadow-md ${isCompleted ? 'opacity-60 border-green-400 bg-green-50' : 'border-slate-100'}`}
+                                                            style={{ animationDelay: `${idx * 50}ms` }}
+                                                            title={isCompleted ? 'Click para desmarcar' : 'Click para marcar como completado'}
+                                                        >
+                                                            <div className="flex items-center justify-between w-full gap-2">
+                                                                <span
+                                                                    className={`text-[9px] font-black text-white px-1.5 py-0.5 rounded-md shadow-sm`}
+                                                                    style={{ backgroundColor: isCompleted ? '#22c55e' : ev.color }}
+                                                                >
+                                                                    {ev.time}
+                                                                </span>
+                                                                {/* CHECKBOX VISUAL - siempre visible */}
+                                                                <span className={`text-sm ${isCompleted ? 'text-green-500' : 'text-slate-300'}`}>
+                                                                    {isCompleted ? '✅' : '⬜'}
+                                                                </span>
+                                                            </div>
+                                                            <p className={`text-[10px] font-bold leading-tight line-clamp-2 mt-1 ${isCompleted ? 'text-green-600 line-through' : 'text-[#364649]'}`}>
+                                                                {ev.title}
+                                                            </p>
+                                                        </div>
+                                                    );
+                                                })}
+                                                {hiddenCount > 0 && !isAgendaExpanded && (
+                                                    <div
+                                                        className="text-[10px] font-black text-slate-400 text-center py-1 bg-slate-100/50 rounded-lg cursor-pointer hover:bg-slate-200/50 hover:text-[#AA895F] transition-colors"
+                                                        onClick={() => setIsAgendaExpanded(true)}
+                                                    >
+                                                        +{hiddenCount} más...
+                                                    </div>
+                                                )}
+                                            </>
+                                        ) : (
                                             <div className="flex flex-col items-center justify-center h-full opacity-20 grayscale">
                                                 <Clock size={16} className="text-slate-400" />
                                             </div>

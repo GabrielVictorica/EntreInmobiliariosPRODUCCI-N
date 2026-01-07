@@ -35,6 +35,7 @@ import ObjectivesDashboard from './components/tracking/ObjectivesDashboard';
 import WeeklyDashboard from './components/tracking/WeeklyDashboard';
 import ClosingsDashboard from './components/tracking/ClosingsDashboard';
 import CalendarDashboard from './components/tracking/CalendarDashboard';
+import HabitTracker from './components/habits/HabitTracker';
 
 import SuccessNotification from './components/SuccessNotification';
 import WelcomeScreen from './components/WelcomeScreen';
@@ -65,7 +66,8 @@ import {
   CalendarDays,
   DollarSign,
   ShieldCheck,
-  AlertTriangle
+  AlertTriangle,
+  CheckCircle2
 } from 'lucide-react';
 
 // --- DATA MAPPING HELPERS (Frontend <-> DB) ---
@@ -439,7 +441,7 @@ interface ErrorBoundaryState {
 }
 
 // Using a properly typed class component
-class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { hasError: false, error: null };
@@ -483,7 +485,7 @@ export default function App() {
   const [session, setSession] = useState<any>(null);
 
   // Navigation State
-  const [view, setView] = useState<'home' | 'dashboard' | 'form' | 'properties-list' | 'property-form' | 'buyer-clients-list' | 'buyer-client-form' | 'buyer-searches-list' | 'buyer-search-form' | 'visits-list' | 'visit-form' | 'my-week' | 'objectives' | 'closings' | 'calendar' | 'metrics-home' | 'metrics-control'>('metrics-home');
+  const [view, setView] = useState<'home' | 'dashboard' | 'form' | 'properties-list' | 'property-form' | 'buyer-clients-list' | 'buyer-client-form' | 'buyer-searches-list' | 'buyer-search-form' | 'visits-list' | 'visit-form' | 'my-week' | 'objectives' | 'closings' | 'calendar' | 'metrics-home' | 'metrics-control' | 'habits'>('metrics-home');
   const [viewParams, setViewParams] = useState<any>(null);
   const [returnTo, setReturnTo] = useState<{ view: string, params?: any } | null>(null);
 
@@ -519,7 +521,7 @@ export default function App() {
       setExpandedGroup('sellers');
     } else if (['buyer-clients-list', 'buyer-client-form', 'buyer-searches-list', 'buyer-search-form', 'visits-list', 'visit-form'].includes(newView)) {
       setExpandedGroup('buyers');
-    } else if (['my-week', 'objectives', 'closings'].includes(newView)) {
+    } else if (['my-week', 'objectives', 'closings', 'habits'].includes(newView)) {
       setExpandedGroup('trakeo');
     } else if (['home', 'metrics-home', 'metrics-control'].includes(newView)) {
       setExpandedGroup('metrics');
@@ -1134,9 +1136,22 @@ export default function App() {
         }).filter((x): x is ClosingRecord => x !== null);
 
         // Filter by user based on role
-        if (isMom && teamUser && teamUser !== 'global') {
-          mapped = mapped.filter(x => x.userId === teamUser);
-        } else if (!isMom) {
+        // Filter by user based on role
+        if (isMom) {
+          // If Global, show ALL (do not filter)
+          if (teamUser === 'global') {
+            // Keep all
+          }
+          // If Specific Team User selected, show theirs
+          else if (teamUser) {
+            mapped = mapped.filter(x => x.userId === teamUser);
+          }
+          // If "Mis Datos" (empty), show ONLY MY own
+          else {
+            mapped = mapped.filter(x => x.userId === uid);
+          }
+        } else {
+          // Regular user: always specific to them
           mapped = mapped.filter(x => x.userId === uid);
         }
 
@@ -1256,25 +1271,23 @@ export default function App() {
 
 
 
-  const fetchGoogleEvents = async (currentSession: any) => {
+  const fetchGoogleEvents = async (currentSession: any, targetEmail: string = 'primary') => {
     if (!currentSession?.user?.id) return;
+    // If target is "primary" (default) or matches session user user, use 'primary' to avoid errors
+    const targetId = targetEmail === 'primary' || targetEmail === currentSession?.user?.email ? 'primary' : targetEmail;
+
     setIsCheckingGoogleSync(true);
-
-    const SUPABASE_URL = 'https://whfoflccshoztjlesnhh.supabase.co';
-    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoZm9mbGNjc2hvenRqbGVzbmhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MzUwMzEsImV4cCI6MjA4MTMxMTAzMX0.rPQdO1qCovC9WP3ttlDOArvTI7I15lg7fnOPkJseDos';
-    const authToken = currentSession.access_token || SUPABASE_KEY;
-
     try {
-      // Get token from DB
-      const integResponse = await fetch(
-        `${SUPABASE_URL}/rest/v1/user_integrations?user_id=eq.${currentSession.user.id}&provider=eq.google_calendar&select=access_token,refresh_token`,
-        {
-          headers: {
-            'apikey': SUPABASE_KEY,
-            'Authorization': `Bearer ${authToken}`
-          }
+      const SUPABASE_URL = 'https://whfoflccshoztjlesnhh.supabase.co';
+      const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoZm9mbGNjc2hvenRqbGVzbmhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MzUwMzEsImV4cCI6MjA4MTMxMTAzMX0.rPQdO1qCovC9WP3ttlDOArvTI7I15lg7fnOPkJseDos';
+
+      // 1. Get Token (Always from Main User - the one viewing)
+      const integResponse = await fetch(`${SUPABASE_URL}/rest/v1/user_integrations?user_id=eq.${currentSession.user.id}&provider=eq.google_calendar&select=access_token,refresh_token,expires_at`, {
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${currentSession.access_token || SUPABASE_KEY}`
         }
-      );
+      });
 
       let integ: any = null;
       if (integResponse.ok) {
@@ -1303,7 +1316,7 @@ export default function App() {
       const endOfWeek = new Date(startOfWeek);
       endOfWeek.setDate(startOfWeek.getDate() + 7);
 
-      const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${startOfWeek.toISOString()}&timeMax=${endOfWeek.toISOString()}&singleEvents=true&orderBy=startTime`, {
+      const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${targetId}/events?timeMin=${startOfWeek.toISOString()}&timeMax=${endOfWeek.toISOString()}&singleEvents=true&orderBy=startTime`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
@@ -1314,7 +1327,7 @@ export default function App() {
         if (refreshData?.access_token) {
           setGoogleAccessToken(refreshData.access_token);
           setIsGoogleSynced(true);
-          const retryResponse = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${startOfWeek.toISOString()}&timeMax=${endOfWeek.toISOString()}&singleEvents=true&orderBy=startTime`, {
+          const retryResponse = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${targetId}/events?timeMin=${startOfWeek.toISOString()}&timeMax=${endOfWeek.toISOString()}&singleEvents=true&orderBy=startTime`, {
             headers: { 'Authorization': `Bearer ${refreshData.access_token}` }
           });
           if (retryResponse.ok) {
@@ -1325,9 +1338,17 @@ export default function App() {
       } else if (response.ok) {
         const data = await response.json();
         setGoogleEvents(data.items || []);
+      } else {
+        // Handle 404 (Calendar not found) or 403 (Not shared)
+        console.warn(`Could not fetch calendar for ${targetId}. Status: ${response.status}`);
+        setGoogleEvents([]); // Clear events to avoid showing Mother's events
+        if (targetId !== 'primary') {
+          // Optional: You could set a UI state here to show a "Calendar not shared" warning
+        }
       }
     } catch (error) {
       console.error("Error fetching Google Events:", error);
+      setGoogleEvents([]);
     } finally {
       setIsCheckingGoogleSync(false);
     }
@@ -1416,8 +1437,18 @@ export default function App() {
   // Re-filter when filters change (Manual Trigger)
   useEffect(() => {
     if (session?.user && !isAuthChecking) {
-      // If simply filtering, we can just reload data with current state
+      // 1. Reload DB Data (Supabase)
       loadAllData(session.user.id, isMother, selectedTeamUser);
+
+      // 2. Reload Google Calendar (Attempt to switch to Team Member's calendar)
+      let targetEmail = 'primary';
+      if (isMother && selectedTeamUser && selectedTeamUser !== 'global') {
+        const teamMember = teamUsers.find(u => u.user_id === selectedTeamUser);
+        if (teamMember?.email) {
+          targetEmail = teamMember.email;
+        }
+      }
+      fetchGoogleEvents(session, targetEmail);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTeamUser]); // only when specific filter changes. isMother change is handled by init.
@@ -1970,6 +2001,7 @@ export default function App() {
           displayClosingRatioDisplay={hmRatioDisplay}
           displayIsStandardRate={hmIsStandard}
           googleEvents={googleEvents}
+          targetUserId={(isMother && selectedTeamUser) ? selectedTeamUser : session?.user?.id}
         />;
 
       // SELLERS
@@ -2229,8 +2261,10 @@ export default function App() {
           googleAccessToken={googleAccessToken}
           onTokenChange={setGoogleAccessToken}
           isCheckingSync={isCheckingGoogleSync}
+          targetUserId={(isMother && selectedTeamUser) ? selectedTeamUser : session?.user?.id}
         />;
 
+      // 'habits' is now persistently rendered below
 
 
       default: return null;
@@ -2335,6 +2369,7 @@ export default function App() {
                     <NavItem icon={<CalendarDays size={18} />} label="Mí Semana" active={view === 'my-week'} onClick={() => navigateTo('my-week')} small />
                     <NavItem icon={<DollarSign size={18} />} label="Cierres" active={view === 'closings'} onClick={() => navigateTo('closings')} small />
                     <NavItem icon={<Flag size={18} />} label="Objetivos" active={view === 'objectives'} onClick={() => navigateTo('objectives')} small />
+                    <NavItem icon={<CheckCircle2 size={18} />} label="Mis Hábitos" active={view === 'habits'} onClick={() => navigateTo('habits')} small />
 
                   </div>
                 </div>
@@ -2414,7 +2449,17 @@ export default function App() {
           </header>
 
           <div className="p-8 max-w-7xl mx-auto">
-            {renderContent()}
+            {/* Persistent Mount for Habits (Instant Load) */}
+            <div style={{ display: view === 'habits' ? 'block' : 'none' }}>
+              <HabitTracker
+                session={session}
+                googleAccessToken={googleAccessToken}
+                customUserId={isMother && selectedTeamUser && selectedTeamUser !== 'global' ? selectedTeamUser : undefined}
+              />
+            </div>
+
+            {/* Conditional Mount for other views */}
+            {view !== 'habits' && renderContent()}
           </div>
         </main>
 

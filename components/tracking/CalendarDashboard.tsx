@@ -15,6 +15,7 @@ interface CalendarDashboardProps {
     googleAccessToken: string | null;
     onTokenChange: (token: string | null) => void;
     isCheckingSync: boolean;
+    targetUserId?: string; // For habit sync
 }
 
 export default function CalendarDashboard({
@@ -27,7 +28,8 @@ export default function CalendarDashboard({
     onSyncChange: setIsSynced,
     googleAccessToken,
     onTokenChange: setGoogleAccessToken,
-    isCheckingSync
+    isCheckingSync,
+    targetUserId
 }: CalendarDashboardProps) {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [isSyncing, setIsSyncing] = useState(false);
@@ -44,6 +46,177 @@ export default function CalendarDashboard({
     // Zoom control state (height of one hour in pixels)
     const [hourHeight, setHourHeight] = useState(80);
     const gridRef = useRef<HTMLDivElement>(null);
+
+    // ========== COMPLETION STATE ==========
+    const [habits, setHabits] = useState<{ id: string; name: string }[]>([]);
+    const [dailyLogId, setDailyLogId] = useState<string | null>(null);
+    const [completedEventIds, setCompletedEventIds] = useState<Set<string>>(new Set());
+
+    const fetchCompletionData = async () => {
+        if (!targetUserId) return;
+        const today = new Date().toISOString().split('T')[0];
+
+        const { data: habitsData } = await supabase
+            .from('habits')
+            .select('id, name')
+            .eq('user_id', targetUserId)
+            .eq('active', true);
+
+        if (habitsData) setHabits(habitsData);
+
+        const { data: dailyLog } = await supabase
+            .from('daily_logs')
+            .select('id')
+            .eq('user_id', targetUserId)
+            .eq('date', today)
+            .maybeSingle();
+
+        if (dailyLog) setDailyLogId(dailyLog.id);
+
+        const stored = localStorage.getItem(`completedEvents_${targetUserId}`);
+        if (stored) {
+            try {
+                const parsed = JSON.parse(stored);
+                if (parsed.date === today && Array.isArray(parsed.ids)) {
+                    setCompletedEventIds(new Set(parsed.ids));
+                }
+            } catch (e) { }
+        }
+    };
+
+    useEffect(() => {
+        fetchCompletionData();
+    }, [targetUserId]);
+
+    useEffect(() => {
+        if (targetUserId && completedEventIds.size > 0) {
+            const today = new Date().toISOString().split('T')[0];
+            localStorage.setItem(`completedEvents_${targetUserId}`, JSON.stringify({
+                date: today,
+                ids: Array.from(completedEventIds)
+            }));
+        }
+    }, [completedEventIds, targetUserId]);
+
+    // Auto-refresh when tab becomes visible (for cross-tab sync)
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                fetchCompletionData();
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('focus', () => fetchCompletionData());
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('focus', () => { });
+        };
+    }, [targetUserId]);
+
+    const toggleEventCompletion = async (eventId: string, eventTitle: string, eventDate: string) => {
+        if (!eventId || !targetUserId) return;
+        const today = new Date().toISOString().split('T')[0];
+        const isToday = eventDate === today;
+        const isCompleted = completedEventIds.has(eventId);
+
+        setCompletedEventIds(prev => {
+            const newSet = new Set(prev);
+            if (isCompleted) {
+                newSet.delete(eventId);
+            } else {
+                newSet.add(eventId);
+            }
+            return newSet;
+        });
+
+        if (isToday) {
+            // Normalize: remove emojis and extra whitespace for better matching
+            const normalizedTitle = eventTitle.replace(/[^\w\sáéíóúñü]/gi, '').trim().toLowerCase();
+
+            const matchedHabit = habits.find(h => {
+                const normalizedName = h.name.toLowerCase();
+                return normalizedTitle.includes(normalizedName) || normalizedName.includes(normalizedTitle);
+            });
+
+            console.log('[Calendar Habit Sync]', {
+                eventTitle,
+                normalizedTitle,
+                habits: habits.map(h => h.name),
+                matchedHabit: matchedHabit?.name || 'NONE',
+                isToday,
+                isCompleted
+            });
+
+            if (matchedHabit) {
+                try {
+                    let currentLogId = dailyLogId;
+
+                    if (!currentLogId) {
+                        const { data: newLog, error: logError } = await supabase
+                            .from('daily_logs')
+                            .insert({ user_id: targetUserId, date: today })
+                            .select()
+                            .single();
+
+                        if (logError) {
+                            console.error('[Calendar Sync] Error creating daily log:', logError);
+                            return;
+                        }
+
+                        if (newLog) {
+                            currentLogId = newLog.id;
+                            setDailyLogId(newLog.id);
+                        }
+                    }
+
+                    if (isCompleted) {
+                        const { error: deleteError } = await supabase
+                            .from('habit_completions')
+                            .delete()
+                            .eq('daily_log_id', currentLogId)
+                            .eq('habit_id', matchedHabit.id);
+
+                        if (deleteError) {
+                            console.error('[Calendar Sync] Error deleting:', deleteError);
+                        } else {
+                            console.log('[Calendar Sync] UNMARKED:', matchedHabit.name);
+                            // Dispatch for instant cross-component sync
+                            window.dispatchEvent(new CustomEvent('habitCompletionChanged', {
+                                detail: { habitId: matchedHabit.id, completed: false }
+                            }));
+                        }
+                    } else {
+                        const { error: insertError } = await supabase
+                            .from('habit_completions')
+                            .insert({
+                                habit_id: matchedHabit.id,
+                                daily_log_id: currentLogId,
+                                target_date: today,
+                                completed_at: new Date().toISOString()
+                            });
+
+                        if (insertError) {
+                            console.error('[Calendar Sync] Error inserting:', insertError);
+                        } else {
+                            console.log('[Calendar Sync] MARKED:', matchedHabit.name);
+                            // Dispatch for instant cross-component sync
+                            window.dispatchEvent(new CustomEvent('habitCompletionChanged', {
+                                detail: { habitId: matchedHabit.id, completed: true }
+                            }));
+                        }
+                    }
+                } catch (error) {
+                    console.error('[Calendar Sync] Exception:', error);
+                }
+            }
+        }
+    };
+
+    const isEventCompleted = (eventId: string): boolean => {
+        return completedEventIds.has(eventId);
+    };
 
     // Google Colors Helper
     const getGoogleColor = (colorId: string) => {
@@ -309,23 +482,70 @@ export default function CalendarDashboard({
     };
 
     const layoutEvents = (events: any[]) => {
+        // 1. Sort by start time
         const sorted = [...events].sort((a, b) => new Date(a.start.dateTime || a.start.date).getTime() - new Date(b.start.dateTime || b.start.date).getTime());
-        const columns: any[][] = [];
+
+        // 2. Group into Clusters (Disjoint sets of overlapping events)
+        const clusters: any[][] = [];
+        let currentCluster: any[] = [];
+        let clusterEnd = 0;
+
         sorted.forEach(event => {
             const start = new Date(event.start.dateTime || event.start.date).getTime();
-            let placed = false;
-            for (let i = 0; i < columns.length; i++) {
-                const col = columns[i];
-                const lastEventInCol = col[col.length - 1];
-                const lastEnd = new Date(lastEventInCol.end.dateTime || lastEventInCol.end.date).getTime();
-                if (start >= lastEnd) { col.push(event); event._col = i; placed = true; break; }
+            const end = new Date(event.end.dateTime || event.end.date).getTime();
+
+            if (currentCluster.length === 0) {
+                currentCluster.push(event);
+                clusterEnd = end;
+            } else {
+                // If event starts before the current cluster chain ends -> It overlaps/connects
+                if (start < clusterEnd) {
+                    currentCluster.push(event);
+                    clusterEnd = Math.max(clusterEnd, end);
+                } else {
+                    // Gap detected -> Close cluster
+                    clusters.push(currentCluster);
+                    currentCluster = [event];
+                    clusterEnd = end;
+                }
             }
-            if (!placed) { columns.push([event]); event._col = columns.length - 1; }
         });
-        return sorted.map(event => ({
-            ...event,
-            _style: { left: `${(event._col * (100 / columns.length))}%`, width: `${(100 / columns.length) - 1}%` }
-        }));
+        if (currentCluster.length > 0) clusters.push(currentCluster);
+
+        // 3. Layout each cluster independently
+        return clusters.flatMap(cluster => {
+            const columns: any[][] = [];
+            cluster.forEach(event => {
+                const start = new Date(event.start.dateTime || event.start.date).getTime();
+                let placed = false;
+                for (let i = 0; i < columns.length; i++) {
+                    const col = columns[i];
+                    const lastEventInCol = col[col.length - 1];
+                    const lastEnd = new Date(lastEventInCol.end.dateTime || lastEventInCol.end.date).getTime();
+
+                    // Greedy packing: If fits in column, place it.
+                    if (start >= lastEnd) {
+                        col.push(event);
+                        event._col = i;
+                        placed = true;
+                        break;
+                    }
+                }
+                if (!placed) {
+                    columns.push([event]);
+                    event._col = columns.length - 1;
+                }
+            });
+
+            // Map styles for this cluster
+            return cluster.map(event => ({
+                ...event,
+                _style: {
+                    left: `${(event._col * (100 / columns.length))}%`,
+                    width: `${(100 / columns.length) - 1}%` // -1% gap
+                }
+            }));
+        });
     };
 
     const getEventsForDay = (day: Date) => {
@@ -336,7 +556,31 @@ export default function CalendarDashboard({
             const target = new Date(eventDate);
             return day.getDate() === target.getDate() && day.getMonth() === target.getMonth() && day.getFullYear() === target.getFullYear();
         });
-        const dayGoogleEvents = layoutEvents(rawGoogleEvents);
+
+        // Filter out All Day events for the hourly grid layout
+        // All Day events have 'date' but no 'dateTime'
+        // ALSO filter events starting < 8am because the renderer hides them (prevening "Ghost Columns")
+        const timedEvents = rawGoogleEvents.filter((e: any) => {
+            if (!e.start.dateTime) return false;
+            const h = new Date(e.start.dateTime).getHours();
+            return h >= 8 && h < 24;
+        });
+
+        // DEDUPLICATION: Merge identical events (Same Start + Same Summary)
+        // This prevents "split columns" if the user accidentally has duplicates or sync errors
+        const uniqueEvents: any[] = [];
+        const seenKeys = new Set();
+
+        timedEvents.forEach((e: any) => {
+            const key = `${e.start.dateTime}-${e.summary}`;
+            if (!seenKeys.has(key)) {
+                seenKeys.add(key);
+                uniqueEvents.push(e);
+            }
+        });
+
+        const dayGoogleEvents = layoutEvents(uniqueEvents);
+
         return { dayVisits, dayActivities, dayGoogleEvents };
     };
 
@@ -483,23 +727,39 @@ export default function CalendarDashboard({
                                             labelTime = resizePreview.timeLabel;
                                         }
 
+                                        // Get event date as YYYY-MM-DD
+                                        const eventDate = date.toISOString().split('T')[0];
+
+                                        // Check if this event is completed (by unique event ID)
+                                        const isCompleted = isEventCompleted(e.id);
+
                                         return (
                                             <div key={e.id}
                                                 onDoubleClick={(ev) => handleEditClick(ev, e)}
-                                                onClick={(ev) => ev.stopPropagation()}
-                                                className={`text-white text-[10px] p-1.5 rounded-lg shadow-sm pointer-events-auto cursor-pointer hover:shadow-md transition-all z-10 group overflow-hidden ${resizePreview?.eventId === e.id ? 'opacity-90 ring-2 ring-blue-400 z-50' : ''}`}
+                                                onClick={(ev) => {
+                                                    ev.stopPropagation();
+                                                    toggleEventCompletion(e.id, e.summary || '', eventDate);
+                                                }}
+                                                className={`text-white text-[10px] p-1.5 rounded-lg shadow-sm pointer-events-auto cursor-pointer hover:shadow-md transition-all z-10 group overflow-hidden ${resizePreview?.eventId === e.id ? 'opacity-90 ring-2 ring-blue-400 z-50' : ''} ${isCompleted ? 'opacity-70 ring-2 ring-green-400' : 'ring-2 ring-white/30'}`}
                                                 style={{
                                                     top: `${top}px`,
                                                     height: `${Math.max(displayHeight, 25)}px`,
                                                     position: 'absolute',
-                                                    backgroundColor: getGoogleColor(e.colorId),
+                                                    backgroundColor: isCompleted ? '#22c55e' : getGoogleColor(e.colorId),
                                                     ...e._style
                                                 }}
+                                                title={isCompleted ? 'Click para desmarcar' : 'Click para marcar completado'}
                                             >
                                                 <div className="flex justify-between items-start">
-                                                    <p className="font-bold truncate">{e.summary}</p>
+                                                    <p className={`font-bold truncate flex-1 ${isCompleted ? 'line-through' : ''}`}>
+                                                        {e.summary}
+                                                    </p>
+                                                    {/* CHECKBOX VISUAL */}
+                                                    <span className="ml-1 text-sm">
+                                                        {isCompleted ? '✅' : '⬜'}
+                                                    </span>
                                                     {showLabel && (
-                                                        <span className="bg-black/50 px-1 rounded text-[9px] font-mono whitespace-nowrap">
+                                                        <span className="bg-black/50 px-1 rounded text-[9px] font-mono whitespace-nowrap ml-1">
                                                             {labelTime}
                                                         </span>
                                                     )}
