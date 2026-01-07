@@ -484,18 +484,18 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                                 };
                             }).sort((a, b) => a.timestamp - b.timestamp);
 
-                            const visibleEvents = isAgendaExpanded ? dayEvents : dayEvents.slice(0, 3);
-                            const hiddenCount = dayEvents.length - visibleEvents.length;
+                            const visibleEvents = dayEvents; // Show all events, scroll handles overflow
+                            const totalCount = dayEvents.length;
 
                             return (
-                                <div key={i} className={`flex flex-col rounded-3xl p-4 transition-all duration-300 ${isToday ? 'bg-[#AA895F]/5 ring-2 ring-[#AA895F]/20' : 'bg-slate-50 border border-slate-100'} ${isAgendaExpanded ? 'min-h-[180px]' : 'h-[180px]'}`}>
+                                <div key={i} className={`flex flex-col rounded-3xl p-4 transition-all duration-300 ${isToday ? 'bg-[#AA895F]/5 ring-2 ring-[#AA895F]/20' : 'bg-slate-50 border border-slate-100'} ${isAgendaExpanded ? 'min-h-[280px]' : 'h-[280px]'}`}>
                                     <div className="mb-3 border-b border-slate-200/50 pb-2">
                                         <p className={`text-[10px] font-black uppercase tracking-tighter ${isToday ? 'text-[#AA895F]' : 'text-slate-400'}`}>
                                             {day.toLocaleDateString('es-AR', { weekday: 'long' })}
                                         </p>
                                         <p className={`text-lg font-black ${isToday ? 'text-[#AA895F]' : 'text-[#364649]'}`}>{day.getDate()}</p>
                                     </div>
-                                    <div className={`space-y-2 flex-grow ${isAgendaExpanded ? '' : 'overflow-hidden'}`}>
+                                    <div className={`space-y-2 flex-grow pr-1 ${isAgendaExpanded ? '' : 'overflow-y-auto custom-scrollbar'}`}>
                                         {visibleEvents.length > 0 ? (
                                             <>
                                                 {visibleEvents.map((ev: any, idx) => {
@@ -533,14 +533,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                                                         </div>
                                                     );
                                                 })}
-                                                {hiddenCount > 0 && !isAgendaExpanded && (
-                                                    <div
-                                                        className="text-[10px] font-black text-slate-400 text-center py-1 bg-slate-100/50 rounded-lg cursor-pointer hover:bg-slate-200/50 hover:text-[#AA895F] transition-colors"
-                                                        onClick={() => setIsAgendaExpanded(true)}
-                                                    >
-                                                        +{hiddenCount} más...
-                                                    </div>
-                                                )}
+
                                             </>
                                         ) : (
                                             <div className="flex flex-col items-center justify-center h-full opacity-20 grayscale">
