@@ -321,6 +321,7 @@ export interface ActivityRecord {
   type: ActivityType;
   contactId?: string;
   contactName: string;
+  time?: string; // HH:mm
   notes?: string;
   referenceId?: string;
   systemGenerated?: boolean;

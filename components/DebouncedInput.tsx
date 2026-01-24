@@ -1,50 +1,58 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 interface DebouncedInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'> {
-    value: number;
-    onChange: (val: number, name?: string) => void;
+    value: string | number;
+    onChange: (val: string | number, name?: string) => void;
+    debounce?: number;
     className?: string;
-    name?: string; // Added name prop for stable handlers
+    name?: string;
 }
 
 export const DebouncedInput = React.memo(({
     value,
     onChange,
+    debounce = 500,
     className,
     id,
     disabled,
     name,
     ...props
 }: DebouncedInputProps) => {
-    const [localValue, setLocalValue] = useState<string>(value.toString());
+    const [localValue, setLocalValue] = useState<string | number>(value);
     const isFocusedRef = useRef(false);
 
     useEffect(() => {
-        // Only sync from parent when NOT focused (prevents overwriting user input)
-        if (!isFocusedRef.current && value.toString() !== localValue) {
-            setLocalValue(value.toString());
+        // Only sync from parent when NOT focused to avoid cursor jumping
+        if (!isFocusedRef.current && value !== localValue) {
+            setLocalValue(value);
         }
-    }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [value]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = e.target.value;
-        // Allow strictly numeric input (digits and one decimal point)
-        if (val === '' || /^\d*\.?\d*$/.test(val)) {
-            setLocalValue(val);
-        }
+        setLocalValue(val);
     };
 
-    const handleBlur = () => {
+    const handleBlur = (e?: React.FocusEvent<HTMLInputElement>) => {
         isFocusedRef.current = false;
-        let num = parseFloat(localValue);
-        if (localValue === '' || isNaN(num)) {
-            num = 0;
-            setLocalValue('0');
+
+        // Trigger immediate update on blur
+        let finalValue: string | number = localValue;
+        if (props.type === 'number') {
+            finalValue = parseFloat(localValue.toString()) || 0;
         }
-        // Only call onChange if the value actually changed
-        if (num !== value) {
-            onChange(num, name);
+
+        if (finalValue !== value) {
+            onChange(finalValue, name);
         }
+
+        // Propagate blur event if parent needs it
+        if (props.onBlur && e) props.onBlur(e);
+    };
+
+    const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+        isFocusedRef.current = true;
+        if (props.onFocus) props.onFocus(e);
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -52,27 +60,39 @@ export const DebouncedInput = React.memo(({
             handleBlur();
             (e.target as HTMLInputElement).blur();
         }
+        if (props.onKeyDown) props.onKeyDown(e);
     };
 
-    const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-        isFocusedRef.current = true;
-        // Use setTimeout to avoid interfering with the click event
-        const target = e.target;
-        setTimeout(() => target.select(), 0);
-    };
+    // Derived effect for value commit logic while typing
+    useEffect(() => {
+        const timeout = setTimeout(() => {
+            // Only commit via timeout if we are STILL focused (typing)
+            // If blurred, the handleBlur has already committed it.
+            if (isFocusedRef.current) {
+                let finalValue: string | number = localValue;
+                if (props.type === 'number') {
+                    finalValue = parseFloat(localValue.toString()) || 0;
+                }
+
+                if (finalValue !== value) {
+                    onChange(finalValue, name);
+                }
+            }
+        }, debounce);
+
+        return () => clearTimeout(timeout);
+    }, [localValue, debounce, onChange, name, value, props.type]);
 
     return (
         <input
             {...props}
             id={id}
             name={name}
-            type="text"
-            inputMode="decimal"
             value={localValue}
             onChange={handleChange}
             onBlur={handleBlur}
-            onKeyDown={handleKeyDown}
             onFocus={handleFocus}
+            onKeyDown={handleKeyDown}
             disabled={disabled}
             className={className}
         />

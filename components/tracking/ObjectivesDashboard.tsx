@@ -3,8 +3,7 @@ import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import {
     Flag,
-    Save, // Added Save Icon
-    Target,
+    Save,
     BarChart3,
     TrendingUp,
     Activity,
@@ -14,130 +13,92 @@ import {
     CheckCircle2,
     Calculator,
     Users,
-
+    X,
 } from 'lucide-react';
-import { PropertyRecord, VisitRecord, ActivityRecord } from '../../types';
-
 
 // Components
 import CaptationProjector from './CaptationProjector';
+import { DEFAULT_GOALS } from '../../store/slices/types';
 import { DebouncedInput } from '../DebouncedInput';
-import { differenceInWeeks, parseISO, isValid } from 'date-fns';
+import { calculateWeeks } from '../../utils/dateUtils';
+
+import { useBusinessStore } from '../../store/useBusinessStore';
+import { useShallow } from 'zustand/react/shallow';
 
 interface ObjectivesDashboardProps {
-    currentBilling: number;
-    currentActivities: number; // PL + PB
-    currentRatio: number; // e.g. 6.0 meaning 6:1
-    pipelineValue: number;
-    weeksOfData: number;
-    totalClosings: number;
-    captationStats: {
-        preListings: number;
-        listings: number;
-    };
-    historicalAverageTicket: number;
-    // New Props
-    properties: PropertyRecord[];
-    activities: ActivityRecord[]; // All activities for calculation
-    visits: VisitRecord[]; // All visits for alerts
     onNavigate: (view: any, params?: any) => void;
-    // Year Props
     availableYears: number[];
     currentYear: number;
     onSelectYear: (year: number) => void;
+    targetUserId?: string;
+    token?: string;
 }
 
-// ... imports ...
-import { supabase } from '../../services/supabaseClient'; // Ensure imported or passed
-
 function ObjectivesDashboard({
-    currentBilling,
-    currentActivities,
-    currentRatio,
-    pipelineValue,
-    weeksOfData,
-    totalClosings,
-    captationStats,
-    historicalAverageTicket,
-    properties = [],
-    activities = [],
-    visits = [],
     onNavigate,
-    financialGoals,
-    onUpdateGoals,
-    onSaveGoals,
-    availableYears = [2024, 2025, 2026],
-    currentYear,
-    onSelectYear,
-    isLoading = false,
-    hasUnsavedChanges = false
-}: ObjectivesDashboardProps & {
-    financialGoals: any;
-    onUpdateGoals: (goals: any) => void;
-    onSaveGoals: (goals: any) => void;
-    isLoading?: boolean;
-    hasUnsavedChanges?: boolean;
-}) {
+    availableYears = [2024, 2025, 2026, 2027, 2028],
+    targetUserId,
+    token
+}: ObjectivesDashboardProps) {
+    const {
+        currentYear,
+        onSelectYear,
+        goalsByYear,
+        fetchFinancialGoals,
+        fetchGoalsHistory,
+        goalsHistory,
+        updateFinancialGoals,
+        saveFinancialGoals,
+        loadingGoals,
+        hasUnsavedGoals,
+        getPlanAnalysis
+    } = useBusinessStore(useShallow(state => ({
+        currentYear: state.selectedYear,
+        onSelectYear: state.setSelectedYear,
+        goalsByYear: state.goalsByYear,
+        fetchFinancialGoals: state.fetchFinancialGoals,
+        fetchGoalsHistory: state.fetchGoalsHistory,
+        goalsHistory: state.goalsHistory,
+        updateFinancialGoals: state.updateFinancialGoals,
+        saveFinancialGoals: state.saveFinancialGoals,
+        loadingGoals: state.loadingGoals,
+        hasUnsavedGoals: state.hasUnsavedGoals,
+        getPlanAnalysis: state.getPlanAnalysis
+    })));
 
-    // History State
+    const financialGoals = goalsByYear[currentYear] || DEFAULT_GOALS;
+
+    // OPTIMIZATION: Memoize heavy analysis calculation
+    const analysis = React.useMemo(() =>
+        getPlanAnalysis(currentYear, financialGoals),
+        [currentYear, financialGoals, getPlanAnalysis]
+    );
+
+    useEffect(() => {
+        // OPTIMIZATION: App.tsx already manages fetching on year change.
+    }, [currentYear, targetUserId]);
+
+    const isGlobalView = !targetUserId;
+
+    // OPTIMIZATION: Memoize handlers to prevent child re-renders
+    const handleGoalChange = React.useCallback((val: number, name?: string) => {
+        if (name) updateFinancialGoals({ [name]: val }, currentYear);
+    }, [updateFinancialGoals, currentYear]);
+
+    const updateGoal = React.useCallback((key: string, value: any) => {
+        updateFinancialGoals({ [key]: value }, currentYear);
+    }, [updateFinancialGoals, currentYear]);
+
     const [historyOpen, setHistoryOpen] = useState(false);
-    const [historyData, setHistoryData] = useState<any[]>([]);
-    const [loadingHistory, setLoadingHistory] = useState(false);
+    const historyData = goalsHistory || [];
 
     const loadHistory = async () => {
-        setLoadingHistory(true);
         setHistoryOpen(true);
-
-        try {
-            const SUPABASE_URL = 'https://whfoflccshoztjlesnhh.supabase.co';
-            const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoZm9mbGNjc2hvenRqbGVzbmhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MzUwMzEsImV4cCI6MjA4MTMxMTAzMX0.rPQdO1qCovC9WP3ttlDOArvTI7I15lg7fnOPkJseDos';
-
-            // Get session from localStorage
-            const sessionStr = localStorage.getItem('sb-whfoflccshoztjlesnhh-auth-token');
-            let accessToken = SUPABASE_KEY;
-            let userId = '';
-
-            if (sessionStr) {
-                try {
-                    const sessionData = JSON.parse(sessionStr);
-                    accessToken = sessionData.access_token || SUPABASE_KEY;
-                    userId = sessionData.user?.id || '';
-                } catch (e) {
-                    // Silent parse error
-                }
-            }
-
-            if (!userId) {
-                setLoadingHistory(false);
-                return;
-            }
-
-            const url = `${SUPABASE_URL}/rest/v1/agent_objectives?year=eq.${currentYear}&user_id=eq.${userId}&order=created_at.desc`;
-
-            const response = await fetch(url, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'apikey': SUPABASE_KEY,
-                    'Authorization': `Bearer ${accessToken}`
-                }
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                setHistoryData(data || []);
-            } else {
-                // Silent fail on history fetch
-            }
-        } catch (e) {
-            // Silent fail on history load
+        if (targetUserId) {
+            await fetchGoalsHistory(targetUserId, currentYear);
         }
-
-        setLoadingHistory(false);
     };
 
-
-    // --- SHARED STATE FROM PROPS ---
     const {
         annualBilling: annualBillingTarget,
         commissionSplit,
@@ -147,7 +108,6 @@ function ObjectivesDashboard({
         manualRatio,
         isManualRatio,
         isManualTicket,
-        // Captation
         captationGoalQty,
         captationGoalPeriod,
         manualCaptationRatio,
@@ -156,255 +116,162 @@ function ObjectivesDashboard({
         captationEndDate
     } = financialGoals;
 
-    // Handlers for updates
-    const updateGoal = React.useCallback((key: string, value: any) => {
-        onUpdateGoals({ [key]: value });
-    }, [onUpdateGoals]);
+    const {
+        transactionsNeeded,
+        realCriticalNumber,
+        isGoalSufficient,
+        isPerformanceGood,
+        projectedNetIncome,
+        effectiveAverageTicket,
+        effectiveRatio,
+        isEffectivenessReliable,
+        isCaptationReliable,
+        effectiveCaptationRatio,
+        weeksOfData,
+        actualCaptations,
+        realCaptationRatio,
+        pocketFeesTarget
+    } = analysis;
 
-    // STABLE HANDLER FOR INPUTS to prevent re-renders unique to each render
-    const handleGoalChange = React.useCallback((val: number, name?: string) => {
-        if (name) updateGoal(name, val);
-    }, [updateGoal]);
-
-    // 1. Annual Billing Target
-    const monthlyGoal = monthlyNeed / (commissionSplit / 100);
-    const projectedNetIncome = currentBilling * (commissionSplit / 100);
     const annualLifestyleCost = monthlyNeed * 12;
-    const isGoalSufficient = (annualBillingTarget * (commissionSplit / 100)) >= annualLifestyleCost;
+    const isSufficientGeneralData = weeksOfData >= 16;
+    const isSufficientCaptationData = isSufficientGeneralData && actualCaptations >= 5;
 
-    // 2. Transaction Volume Needed
-    // AUTO-CALCULATION FIX: Use live historical data when in Auto mode
-    const effectiveAverageTicket = isManualTicket
-        ? averageTicket
-        : (historicalAverageTicket > 0 ? historicalAverageTicket : averageTicket);
-
-    const transactionsNeeded = effectiveAverageTicket > 0 ? annualBillingTarget / (effectiveAverageTicket * 0.03) : 0;
-
-    // 3. THEORETICAL PLAN (Based on Market Standard 6:1)
-    const theoreticalPLPBNeeded = transactionsNeeded * 6; // The 6-1 Rule
-    const theoreticalCriticalNumber = commercialWeeks > 0 ? theoreticalPLPBNeeded / commercialWeeks : 0;
-
-    // 4. REALITY ADJUSTED PLAN
-    const effectiveRatio = isManualRatio
-        ? manualRatio
-        : (currentRatio > 0 ? currentRatio : 6);
-
-    const realPLPBNeeded = transactionsNeeded * effectiveRatio;
-    const realCriticalNumber = commercialWeeks > 0 ? realPLPBNeeded / commercialWeeks : 0;
-
-    // Gap Analysis
-    const workLoadIncrease = realCriticalNumber - theoreticalCriticalNumber;
-    const isPerformanceGood = effectiveRatio <= 6;
-
-    // --- SUFFICIENCY CHECKS ---
-    const isSufficientGeneralData = weeksOfData >= 17 && totalClosings >= 8;
-    const isSufficientCaptationData = weeksOfData >= 17 && captationStats.preListings >= 5;
-
-    // --- AUTO-UPDATES BASED ON SUFFICIENCY ---
-    useEffect(() => {
-        if (isSufficientGeneralData) {
-            if (isManualRatio) updateGoal('isManualRatio', false);
-            if (historicalAverageTicket > 0 && isManualTicket) {
-                updateGoal('averageTicket', historicalAverageTicket);
-                updateGoal('isManualTicket', false);
-            }
-        }
-    }, [isSufficientGeneralData, historicalAverageTicket, isManualTicket, isManualRatio]);
-
-    // Sync critical number to localStorage for WeeklyDashboard
-    useEffect(() => {
-        if (realCriticalNumber > 0) {
-            localStorage.setItem('critical_number', realCriticalNumber.toString());
-        }
-    }, [realCriticalNumber]);
-
-    // Metrics for Charts
-    const generalConversionPercent = effectiveRatio > 0 ? (1 / effectiveRatio) * 100 : 0;
-    const captationRatio = captationStats.listings > 0 ? captationStats.preListings / captationStats.listings : 0;
-    const captationConversionPercent = captationStats.preListings > 0 ? (captationStats.listings / captationStats.preListings) * 100 : 0;
-
-    // --- FORMATTERS ---
-    const billingProgress = annualBillingTarget > 0 ? (currentBilling / annualBillingTarget) * 100 : 0;
-    const targetNetIncome = annualBillingTarget * (commissionSplit / 100);
-    const realIncomeProgress = targetNetIncome > 0 ? (projectedNetIncome / targetNetIncome) * 100 : 0;
-
-    // Calculate actual weekly average
-    const actualWeeklyAvg = weeksOfData > 0 ? currentActivities / weeksOfData : 0;
-
-    const getStatusColor = () => {
-        if (actualWeeklyAvg >= realCriticalNumber) return 'text-emerald-500';
-        if (actualWeeklyAvg >= theoreticalCriticalNumber) return 'text-amber-500';
-        return 'text-rose-500';
-    };
-
-    // --- CAPTATION CALCULATIONS (Lifted from Projector) ---
-    const calculateWeeks = (start: string, end: string) => {
-        try {
-            const startDate = parseISO(start);
-            const endDate = parseISO(end);
-            if (!isValid(startDate) || !isValid(endDate)) return 4;
-            const diff = differenceInWeeks(endDate, startDate);
-            return Math.max(diff, 1);
-        } catch (e) { return 4; }
-    };
 
     const captationWeeksDuration = calculateWeeks(captationStartDate, captationEndDate);
-    const finalCaptationRatio = isManualCaptationRatio ? manualCaptationRatio : captationRatio;
-    const preListingsNeededForCaptation = captationGoalQty * finalCaptationRatio;
-    const weeklyPreListingsNeededForCaptation = preListingsNeededForCaptation / captationWeeksDuration;
+    const usedCaptationRatio = isManualCaptationRatio ? manualCaptationRatio : realCaptationRatio;
+    const totalPreListingsNeeded = (captationGoalQty || 0) * (usedCaptationRatio || 2.5);
+    const weeklyPreListingsNeededForCaptation = totalPreListingsNeeded / captationWeeksDuration;
 
-    // Alert Logic
-    const isCaptationGoalDesaligned = weeklyPreListingsNeededForCaptation > realCriticalNumber;
-
-    // --- FORMATTERS ---
     const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val);
     const formatNumber = (val: number, decimals: number = 1) => new Intl.NumberFormat('es-AR', { maximumFractionDigits: decimals, minimumFractionDigits: decimals }).format(val);
 
-    return (
-        <div className="space-y-6 pb-20 relative">
-            {/* HISTORY MODAL overlay */}
-            {historyOpen && ReactDOM.createPortal(
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-[#364649]/20 backdrop-blur-[3px]" onClick={() => setHistoryOpen(false)}>
-                    <div className="bg-white rounded-3xl w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
-                        <div className="p-6 border-b border-gray-100 flex justify-between items-center">
-                            <h3 className="text-xl font-bold text-[#364649] flex items-center gap-2">
-                                <Activity size={20} className="text-[#AA895F]" />
-                                Historial de Objetivos {currentYear}
-                            </h3>
-                            <button onClick={() => setHistoryOpen(false)} className="text-gray-400 hover:text-gray-600">
-                                <Users size={20} /> {/* Close Icon proxy */}
-                            </button>
-                        </div>
-                        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                            {loadingHistory ? (
-                                <div className="text-center py-10 opacity-50">Cargando historial...</div>
-                            ) : historyData.length === 0 ? (
-                                <div className="text-center py-10 text-gray-400">No hay historial para este año.</div>
-                            ) : (
-                                historyData.map((record, idx) => (
-                                    <div key={record.id} className="border border-gray-100 rounded-xl p-4 bg-gray-50 flex justify-between items-center hover:bg-white hover:shadow-sm transition-all">
-                                        <div>
-                                            <div className="text-xs font-bold text-[#AA895F] uppercase mb-1">
-                                                {new Date(record.created_at).toLocaleDateString()} {new Date(record.created_at).toLocaleTimeString()}
-                                            </div>
-                                            <div className="text-sm font-semibold text-[#364649]">
-                                                Billing: {formatCurrency(record.annual_billing)}
-                                            </div>
-                                            <div className="text-xs text-gray-500">
-                                                Income: {formatCurrency(record.monthly_need)}/mo • Ticket: {formatCurrency(record.average_ticket)}
-                                            </div>
-                                        </div>
-                                        <div className="text-right">
-                                            {idx === 0 && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-1 rounded-full">ACTUAL</span>}
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-                </div>,
-                document.body
-            )}
+    // SegmentedToggle moved OUTSIDE component (see bottom of file)
 
-            {/* Header */}
-            <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-4">
+    return (
+        <div className="w-full max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 pb-12">
+            {/* Header / Year Select */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 mb-2">
                 <div>
-                    <h1 className="text-3xl font-bold text-[#364649] tracking-tight">Planificación Anual</h1>
-                    <div className="flex items-center gap-3 mt-1">
-                        <div className="flex bg-white rounded-lg p-1 border border-gray-200">
-                            {availableYears.map(year => (
-                                <button
-                                    key={year}
-                                    onClick={() => onSelectYear(year)}
-                                    className={`px-3 py-1 text-sm font-bold rounded-md transition-all ${currentYear === year ? 'bg-[#364649] text-white shadow-md' : 'text-gray-400 hover:text-gray-600'}`}
-                                >
-                                    {year}
-                                </button>
-                            ))}
+                    <div className="flex items-center gap-3 mb-1">
+                        <div className="p-2 bg-[#364649] rounded-xl text-white shadow-lg">
+                            <Flag size={20} />
                         </div>
-                        <button onClick={loadHistory} className="text-xs font-bold text-[#AA895F] hover:underline flex items-center gap-1">
-                            <Activity size={14} /> Historial
-                        </button>
+                        <h1 className="text-3xl font-black text-[#364649] tracking-tight">Objetivos {currentYear}</h1>
                     </div>
                 </div>
-                <button
-                    onClick={() => onSaveGoals(financialGoals)}
-                    className={`flex items-center gap-2 bg-[#AA895F] text-white px-4 py-2 rounded-xl font-bold shadow-lg shadow-[#AA895F]/20 hover:bg-[#997a53] transition-all transform hover:scale-105 active:scale-95 ${hasUnsavedChanges ? 'animate-bounce ring-4 ring-red-500 ring-offset-2 scale-110' : ''}`}
-                >
-                    <Save size={18} />
-                    Guardar Planificación {currentYear}
-                </button>
+
+                <div className="flex items-center gap-4 bg-white p-1.5 rounded-2xl border border-[#364649]/10 shadow-sm">
+                    <div className="flex items-center bg-gray-50 rounded-xl p-1 px-2 border border-gray-100">
+                        {availableYears.map(year => (
+                            <button
+                                key={year}
+                                onClick={() => onSelectYear(year)}
+                                className={`px-4 py-1.5 rounded-lg text-sm font-black transition-all ${currentYear === year
+                                    ? 'bg-white text-[#364649] shadow-sm'
+                                    : 'text-[#364649]/30 hover:text-[#364649]/60'
+                                    }`}
+                            >
+                                {year}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="w-px h-6 bg-[#364649]/10 mx-1"></div>
+                    <button
+                        onClick={loadHistory}
+                        className="flex items-center gap-2 px-4 py-2 text-[#364649]/60 hover:text-[#364649] font-bold text-sm transition-colors"
+                    >
+                        <BarChart3 size={16} /> Historial
+                    </button>
+
+                    <button
+                        onClick={() => saveFinancialGoals(targetUserId!, currentYear)}
+                        disabled={!hasUnsavedGoals || loadingGoals || isGlobalView}
+                        className={`flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-black transition-all ${(!hasUnsavedGoals || isGlobalView)
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            : 'bg-emerald-500 text-white shadow-lg hover:bg-emerald-600'
+                            }`}
+                    >
+                        <Save size={16} /> {loadingGoals ? 'Guardando...' : 'Guardar'}
+                    </button>
+                </div>
             </div>
 
-
-            {/* TAB CONTENT: PLANNING (Existing Dashboard) */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fade-in-up">
-
-                {/* --- ROW 1: CALCULATORS --- */}
-
-                {/* 1. LEFT CALCULATOR (Business Variables) */}
-                <div className="lg:col-span-5 flex flex-col gap-4">
-
-                    {/* A. Business Variables */}
-                    <div className="bg-white border border-[#364649]/10 rounded-3xl p-6 shadow-xl relative overflow-hidden h-full">
-                        <h2 className="text-lg font-bold mb-4 flex items-center text-[#364649]">
-                            <SettingsIcon className="mr-2" size={20} /> Variables del Negocio
+            {/* MAIN GRID: 2 COLUMNS */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* LEFT COLUMN */}
+                <div className="flex flex-col gap-8">
+                    {/* METAS FINANCIERAS */}
+                    <div className="bg-white border border-[#364649]/10 rounded-3xl p-6 shadow-xl relative overflow-hidden">
+                        <h2 className="text-sm font-black flex items-center text-[#364649] uppercase tracking-widest mb-6 border-b border-gray-100 pb-4">
+                            <Calculator className="mr-3 text-[#AA895F]" size={18} /> Metas Financieras
                         </h2>
 
-                        <div className="space-y-5 relative z-10">
+                        <div className="space-y-6">
                             <div>
-                                <label htmlFor="annualBilling" className="block text-xs font-bold uppercase text-[#364649]/50 mb-1">Facturación Objetivo (Bruta)</label>
-                                <div className="relative">
-                                    <DollarSign size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#AA895F]" />
+                                <label className="block text-[10px] font-black uppercase text-[#364649]/40 mb-2 tracking-widest">Facturación Bruta Anual</label>
+                                <div className="relative group">
+                                    <DollarSign size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#AA895F]" />
                                     <DebouncedInput
                                         id="annualBilling"
                                         name="annualBilling"
                                         value={annualBillingTarget || 0}
                                         onChange={handleGoalChange}
-                                        className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-10 pr-4 py-3 text-[#364649] font-bold text-xl focus:outline-none focus:border-[#AA895F] focus:ring-1 focus:ring-[#AA895F]"
+                                        className="w-full bg-[#364649]/5 border-2 border-transparent focus:bg-white focus:border-[#AA895F] rounded-2xl pl-12 pr-4 py-4 text-[#364649] font-black text-2xl transition-all shadow-inner focus:shadow-lg disabled:opacity-50"
+                                        disabled={isGlobalView}
                                     />
                                 </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label htmlFor="commissionSplit" className="block text-[10px] font-bold uppercase text-[#364649]/50 mb-1">Split Agente (%)</label>
+                                <div className="flex-1">
+                                    <label className="block text-[10px] font-black uppercase text-[#364649]/40 mb-2 tracking-widest">Split (%)</label>
                                     <div className="relative">
                                         <DebouncedInput
                                             id="commissionSplit"
                                             name="commissionSplit"
                                             value={commissionSplit || 0}
                                             onChange={handleGoalChange}
-                                            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-[#364649] font-bold"
+                                            className="w-full bg-gray-100 border-none rounded-xl px-4 py-3 text-lg text-[#364649] font-black disabled:opacity-50"
+                                            disabled={isGlobalView}
                                         />
-                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#364649]/40">%</span>
+                                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-bold">%</span>
                                     </div>
                                 </div>
-                                <div>
-                                    <label htmlFor="monthlyNeed" className="block text-[10px] font-bold uppercase text-[#364649]/50 mb-1">Costo Vida Mes</label>
+                                <div className="flex-1">
+                                    <label className="block text-[10px] font-black uppercase text-[#364649]/40 mb-2 tracking-widest">Costo Vida Mensual</label>
                                     <div className="relative">
-                                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-[#364649]/40">$</span>
+                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-bold">$</span>
                                         <DebouncedInput
                                             id="monthlyNeed"
                                             name="monthlyNeed"
                                             value={monthlyNeed || 0}
                                             onChange={handleGoalChange}
-                                            className="w-full bg-gray-50 border border-gray-200 rounded-lg pl-5 pr-3 py-2 text-sm text-[#364649] font-bold"
+                                            className="w-full bg-gray-100 border-none rounded-xl pl-8 pr-4 py-3 text-lg text-[#364649] font-black disabled:opacity-50"
+                                            disabled={isGlobalView}
                                         />
                                     </div>
                                 </div>
                             </div>
+                        </div>
+                    </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                    {/* VARIABLES DE CALIBRACIÓN */}
+                    <div className="bg-white border border-[#364649]/10 rounded-3xl p-6 shadow-xl relative overflow-hidden">
+                        <h2 className="text-sm font-black flex items-center text-[#364649] uppercase tracking-widest mb-6 border-b border-gray-100 pb-4">
+                            <SettingsIcon className="mr-3 text-[#AA895F]" size={18} /> Variables de Calibración
+                        </h2>
+
+                        <div className="space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* TICKET PROMEDIO */}
                                 <div>
-                                    <div className="flex justify-between items-center mb-1">
-                                        <label htmlFor="averageTicket" className="block text-[10px] font-bold uppercase text-[#364649]/50">Ticket Promedio</label>
-                                        <button
-                                            onClick={() => updateGoal('isManualTicket', !isManualTicket)}
-                                            className={`text-[8px] px-1.5 py-0.5 rounded uppercase font-bold tracking-wider transition-colors ${isManualTicket ? 'bg-[#AA895F] text-white' : 'bg-gray-200 text-gray-500 hover:bg-gray-300'}`}
-                                        >
-                                            {isManualTicket ? 'Manual' : 'Auto'}
-                                        </button>
+                                    <div className="flex justify-between items-center mb-2">
+                                        <label className="block text-[10px] font-black uppercase text-[#364649]/40 tracking-widest">Ticket Promedio</label>
+                                        <SegmentedToggle
+                                            value={isManualTicket}
+                                            onChange={(val: boolean) => updateGoal('isManualTicket', val)}
+                                        />
                                     </div>
                                     <div className="relative">
                                         <DebouncedInput
@@ -412,198 +279,194 @@ function ObjectivesDashboard({
                                             name="averageTicket"
                                             value={Math.round(isManualTicket ? (averageTicket || 0) : (effectiveAverageTicket || 0))}
                                             onChange={handleGoalChange}
-                                            className={`w-full border rounded-lg px-3 py-2 text-sm text-[#364649] transition-colors ${isManualTicket ? 'bg-white border-gray-200' : 'bg-gray-100 border-transparent text-gray-500'}`}
-                                            disabled={!isManualTicket}
+                                            className={`w-full border-2 rounded-xl px-4 py-3 text-xl font-black transition-all ${isManualTicket ? 'bg-white border-[#AA895F] text-[#364649] shadow-sm' : 'bg-gray-100 border-transparent text-gray-500'}`}
+                                            disabled={!isManualTicket || isGlobalView}
                                         />
-                                        {!isManualTicket && <div className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-emerald-600 font-bold flex items-center gap-1"><CheckCircle2 size={10} /> Histórico</div>}
+                                        <DollarSign size={16} className={`absolute right-4 top-1/2 -translate-y-1/2 ${isManualTicket ? 'text-[#AA895F]' : 'text-gray-400'}`} />
                                     </div>
-                                    {isManualTicket && isSufficientGeneralData && (
-                                        <p className="text-[9px] text-amber-600 mt-1 leading-tight">⚠️ Tienes datos suficientes. Se recomienda usar 'Auto'.</p>
-                                    )}
+                                    <p className="mt-1 text-[9px] font-bold uppercase text-blue-600">PROMEDIO GLOBAL REAL</p>
                                 </div>
+
+                                {/* EFECTIVIDAD */}
                                 <div>
-                                    <label htmlFor="commercialWeeks" className="block text-[10px] font-bold uppercase text-[#364649]/50 mb-1">Sem. Comerciales</label>
+                                    <div className="flex justify-between items-center mb-2">
+                                        <label className="block text-[10px] font-black uppercase text-[#364649]/40 tracking-widest">Efectividad (x : 1)</label>
+                                        <SegmentedToggle
+                                            value={isManualRatio}
+                                            onChange={(val: boolean) => updateGoal('isManualRatio', val)}
+                                        />
+                                    </div>
+                                    <div className="relative">
+                                        <DebouncedInput
+                                            id="manualRatio"
+                                            name="manualRatio"
+                                            value={isManualRatio ? (manualRatio || 0) : effectiveRatio}
+                                            onChange={handleGoalChange}
+                                            className={`w-full border-2 rounded-xl px-4 py-3 text-xl font-black text-center transition-all ${isManualRatio ? 'bg-white border-[#AA895F] text-[#364649] shadow-sm' : 'bg-gray-100 border-transparent text-gray-500'}`}
+                                            disabled={!isManualRatio || isGlobalView}
+                                        />
+                                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-gray-400">a 1</span>
+                                    </div>
+                                    <div className="mt-1">
+                                        {!isManualRatio ? (
+                                            isEffectivenessReliable ? (
+                                                <span className="text-[9px] font-black uppercase text-emerald-600">HISTÓRICO REAL</span>
+                                            ) : (
+                                                <span className="text-[9px] font-black uppercase text-blue-600">ESTÁNDAR 6:1 (CARGA DATOS)</span>
+                                            )
+                                        ) : (
+                                            <span className="text-[9px] font-black uppercase text-amber-600">MANUAL</span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* SEMANAS COMERCIALES */}
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-[#364649]/40 mb-2 tracking-widest">Semanas Comerciales / Año</label>
+                                <div className="relative">
+                                    <Users size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300" />
                                     <DebouncedInput
                                         id="commercialWeeks"
                                         name="commercialWeeks"
                                         value={commercialWeeks || 0}
                                         onChange={handleGoalChange}
-                                        className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-[#364649]"
+                                        className="w-full bg-[#364649]/5 border-2 border-transparent focus:bg-white focus:border-[#AA895F] rounded-xl pl-12 pr-4 py-3 text-[#364649] font-black text-lg transition-all shadow-inner disabled:opacity-50"
+                                        disabled={isGlobalView}
                                     />
-                                </div>
-                            </div>
-
-                            {/* Manual Ratio Override */}
-                            <div className="bg-[#364649]/5 rounded-xl p-3 border border-[#364649]/10">
-                                <div className="flex justify-between items-center mb-2">
-                                    <label className="text-[10px] font-bold uppercase text-[#364649]/60">Calibración Efectividad</label>
-                                    <div
-                                        className={`relative w-8 h-4 rounded-full transition-colors cursor-pointer ${isManualRatio ? 'bg-[#AA895F]' : 'bg-gray-300'}`}
-                                        onClick={() => updateGoal('isManualRatio', !isManualRatio)}
-                                    >
-                                        <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${isManualRatio ? 'translate-x-4' : 'translate-x-0'}`}></div>
-                                    </div>
-                                </div>
-                                {isManualRatio ? (
-                                    <div className="flex items-center gap-2">
-                                        <DebouncedInput
-                                            id="manualRatio"
-                                            name="manualRatio"
-                                            value={manualRatio || 0}
-                                            onChange={handleGoalChange}
-                                            className="w-full bg-white border border-[#AA895F] rounded-lg px-3 py-1.5 text-sm font-bold text-[#364649] text-center"
-                                        />
-                                        <span className="text-xs font-bold text-[#364649]/60">a 1</span>
-                                    </div>
-                                ) : (
-                                    <div className="text-xs text-[#364649]/60 italic text-center py-1">
-                                        Usando histórico real ({currentRatio > 0 ? currentRatio.toFixed(1) : 'Sin datos'})
-                                    </div>
-                                )}
-                            </div>
-
-
-                        </div>
-                    </div>
-
-
-                </div>
-
-                {/* 2. RIGHT CALCULATOR (Captation Projector - Inputs Only) */}
-                <div className="lg:col-span-7 h-full">
-                    <CaptationProjector
-                        captationRatio={captationRatio}
-                        isSufficientData={isSufficientCaptationData}
-                        // Persistence Props
-                        goalQty={captationGoalQty || 2}
-                        goalPeriod={captationGoalPeriod || 'month'}
-                        captationStartDate={captationStartDate}
-                        captationEndDate={captationEndDate}
-                        manualCaptationRatio={manualCaptationRatio || 2.5}
-                        isManualRatio={isManualCaptationRatio || false}
-                        onUpdate={updateGoal}
-                        realCriticalNumber={realCriticalNumber}
-                    />
-                </div>
-
-
-                {/* --- ROW 2: RESULTS --- */}
-
-                {/* 3. LEFT RESULT (Weekly Mission + Validation) */}
-                <div className="lg:col-span-5 flex flex-col gap-6">
-                    {/* Weekly Mission Card */}
-                    {/* Weekly Mission Card */}
-                    <div className={`bg-white border text-center rounded-3xl p-5 shadow-xl relative overflow-hidden transition-all h-[200px] flex flex-col justify-center ${isPerformanceGood ? 'border-[#364649]/10' : 'border-orange-500/30'}`}>
-                        {/* Status Bar */}
-                        <div className={`absolute top-0 left-0 w-full h-1.5 ${isPerformanceGood ? 'bg-emerald-500' : 'bg-orange-500'}`}></div>
-
-                        <div className="flex flex-col items-center justify-center h-full pt-1">
-                            <div className="flex items-center gap-2 mb-3">
-                                {isPerformanceGood ? (
-                                    <TrendingUp className="text-emerald-600" size={20} />
-                                ) : (
-                                    <AlertCircle className="text-orange-600" size={20} />
-                                )}
-                                <h3 className="text-sm font-bold text-[#364649] uppercase tracking-wider">Ritmo Saludable</h3>
-                            </div>
-
-                            <div className="flex items-center justify-center gap-12 w-full px-4">
-                                {/* Metric 1: PL/PB */}
-                                <div className="text-center">
-                                    <div className={`text-6xl font-black mb-1 ${isPerformanceGood ? 'text-[#364649]' : 'text-orange-600'}`}>
-                                        {formatNumber(realCriticalNumber)}
-                                    </div>
-                                    <div className="text-xs font-bold text-[#364649]/60 uppercase tracking-tight">
-                                        PL/PB Semanales
-                                    </div>
-                                </div>
-
-                                {/* Divider */}
-                                <div className="h-12 w-px bg-gray-200"></div>
-
-                                {/* Metric 2: Transactions (Puntas) */}
-                                <div className="text-center">
-                                    <div className="text-4xl font-black text-[#364649] mb-1">
-                                        {formatNumber(transactionsNeeded, 1)}
-                                    </div>
-                                    <div className="text-xs font-bold text-[#364649]/60 uppercase tracking-tight">
-                                        Puntas Anuales
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Optional Status Text (Small) */}
-                            {!isPerformanceGood && (
-                                <div className="mt-6 flex items-center gap-2 text-orange-600 bg-orange-50 px-3 py-1 rounded-full">
-                                    <AlertCircle size={14} />
-                                    <span className="text-xs font-bold">Carga Elevada (+{formatNumber(workLoadIncrease)})</span>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Financial Validation (Moved Bottom Left) */}
-                    <div className={`rounded-2xl p-4 border shadow-sm ${isGoalSufficient ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
-                        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                            <div className="flex items-center gap-2">
-                                <div className={`p-1.5 rounded-lg ${isGoalSufficient ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                                    <Calculator size={16} />
-                                </div>
-                                <div>
-                                    <h3 className={`text-xs font-bold uppercase ${isGoalSufficient ? 'text-emerald-800' : 'text-rose-800'}`}>
-                                        Validación Financiera
-                                    </h3>
-                                    {!isGoalSufficient && <p className="text-[10px] text-rose-600 font-bold">⚠️ Meta insuficiente.</p>}
-                                </div>
-                            </div>
-
-                            <div className="flex items-center gap-6">
-                                <div className="text-right">
-                                    <span className="block text-[9px] uppercase text-black/50 font-bold">Ingreso Neto</span>
-                                    <span className="block text-sm font-black text-[#364649]">{formatCurrency(targetNetIncome)}</span>
-                                </div>
-                                <div className="text-right">
-                                    <span className="block text-[9px] uppercase text-black/50 font-bold">Costo Vida</span>
-                                    <span className="block text-sm font-bold text-[#364649]/60">{formatCurrency(annualLifestyleCost)}</span>
+                                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">sem</span>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                {/* 4. RIGHT RESULT (Captation Result + Alert) */}
-                <div className="lg:col-span-7 space-y-4">
-                    {/* Result Card */}
-                    <div className="bg-[#364649] text-white rounded-3xl p-5 shadow-xl flex flex-col justify-center h-[200px]">
-                        <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-4">
-                            <span className="text-sm text-white/70 uppercase font-bold">Pre-Listings Totales (Campaña)</span>
-                            <span className="text-3xl font-bold text-white">{preListingsNeededForCaptation.toFixed(1)}</span>
+                {/* RIGHT COLUMN */}
+                <div className="flex flex-col gap-8">
+                    {/* PROYECTOR DE CAPTACIONES */}
+                    <div className="bg-white border border-[#364649]/10 rounded-3xl overflow-hidden shadow-xl">
+                        <CaptationProjector
+                            captationRatio={effectiveCaptationRatio}
+                            isSufficientData={isCaptationReliable}
+                            goalQty={captationGoalQty || 2}
+                            goalPeriod={captationGoalPeriod || 'month'}
+                            captationStartDate={captationStartDate}
+                            captationEndDate={captationEndDate}
+                            manualCaptationRatio={manualCaptationRatio || 2.5}
+                            isManualRatio={isManualCaptationRatio || false}
+                            onUpdate={updateGoal}
+                            realCriticalNumber={realCriticalNumber}
+                            SegmentedToggle={SegmentedToggle}
+                        />
+                    </div>
+
+                    {/* MISIÓN CAPTACIÓN (Tarjeta Oscura) */}
+                    <div className="bg-[#364649] text-white rounded-3xl p-8 shadow-2xl flex flex-col justify-center relative overflow-hidden">
+                        <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-6">
+                            <span className="text-[10px] text-white/50 uppercase font-black tracking-widest">Meta Campaña (Solo PL)</span>
+                            <span className="text-5xl font-black text-white">{totalPreListingsNeeded.toFixed(0)}</span>
                         </div>
                         <div className="flex justify-between items-center">
-                            <span className="text-sm text-[#AA895F] font-bold uppercase">Meta Semanal (Solo PL)</span>
-                            <span className="text-4xl font-black text-[#AA895F]">{weeklyPreListingsNeededForCaptation.toFixed(1)}</span>
+                            <span className="text-[10px] text-[#AA895F] font-black uppercase tracking-widest">Semanales Objetivo</span>
+                            <span className="text-6xl font-black text-[#AA895F]">{weeklyPreListingsNeededForCaptation.toFixed(1)}</span>
                         </div>
                     </div>
-
-                    {/* Alert Card */}
-                    {isCaptationGoalDesaligned && (
-                        <div className="bg-orange-50 border border-orange-200 p-4 rounded-2xl animate-pulse flex items-start gap-3">
-                            <AlertCircle size={20} className="text-orange-600 mt-0.5 shrink-0" />
-                            <div>
-                                <p className="text-sm font-bold text-orange-800 mb-1">¡Alerta de Coherencia!</p>
-                                <p className="text-xs text-orange-700/90 leading-relaxed">
-                                    Tu meta de captación requiere <strong>{weeklyPreListingsNeededForCaptation.toFixed(1)} PLs/sem</strong>, pero tu facturación
-                                    solo proyecta necesaria <strong>{realCriticalNumber.toFixed(1)} PL/PB/sem</strong>.
-                                    <br />
-                                    <span className="opacity-75">Estás planificando captar más de lo que necesitas vender.</span>
-                                </p>
-                            </div>
-                        </div>
-                    )}
                 </div>
             </div>
+
+            {/* BOTTOM ROW: RITMO + VALIDACIÓN */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* RITMO SEMANAL */}
+                <div className={`bg-white border rounded-3xl p-8 shadow-xl relative overflow-hidden flex flex-col justify-center ${isPerformanceGood ? 'border-emerald-100' : 'border-orange-100'}`}>
+                    <div className={`absolute top-0 left-0 w-full h-1.5 ${isPerformanceGood ? 'bg-emerald-500' : 'bg-orange-500'}`}></div>
+                    <div className="flex items-center gap-2 mb-6">
+                        {isPerformanceGood ? <TrendingUp className="text-emerald-600" size={20} /> : <AlertCircle className="text-orange-600" size={20} />}
+                        <h3 className="text-xs font-black text-[#364649] uppercase tracking-widest">Ritmo Semanal</h3>
+                    </div>
+                    <div className="flex items-end justify-between">
+                        <div>
+                            <span className={`text-6xl font-black ${isPerformanceGood ? 'text-[#364649]' : 'text-orange-600'}`}>{formatNumber(realCriticalNumber)}</span>
+                            <span className="block text-[10px] font-black text-[#364649]/40 uppercase tracking-widest mt-2">PL / PB NECESARIOS</span>
+                        </div>
+                        <div className="text-right">
+                            <span className="text-3xl font-black text-[#364649]">{formatNumber(transactionsNeeded, 1)}</span>
+                            <span className="block text-[10px] font-black text-[#364649]/60 uppercase tracking-widest">Puntas Año</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* VALIDACIÓN PLAN */}
+                <div className={`rounded-3xl p-8 border shadow-xl flex flex-col justify-center ${isGoalSufficient ? 'bg-emerald-50/50 border-emerald-100' : 'bg-rose-50/50 border-rose-100'}`}>
+                    <div className="flex items-center gap-4 mb-6">
+                        <Calculator size={24} className={isGoalSufficient ? 'text-emerald-600' : 'text-rose-600'} />
+                        <h3 className={`text-xs font-black uppercase tracking-widest ${isGoalSufficient ? 'text-emerald-900' : 'text-rose-900'}`}>Validación Plan</h3>
+                    </div>
+                    <div className="flex justify-between items-end">
+                        <div>
+                            <span className="block text-[10px] font-black uppercase text-black/30 mb-1">Target Neto (Pocket)</span>
+                            <span className={`text-4xl font-black ${isGoalSufficient ? 'text-emerald-700' : 'text-rose-700'}`}>{formatCurrency(pocketFeesTarget)}</span>
+                        </div>
+                        <div className="text-right">
+                            <span className="block text-[10px] font-black uppercase text-black/50 mb-1">vs Costos Anuales</span>
+                            <span className="text-2xl font-black text-[#364649]">{formatCurrency(annualLifestyleCost)}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* History Modal Overlay */}
+            {historyOpen && ReactDOM.createPortal(
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-[#364649]/20 backdrop-blur-[3px]" onClick={() => setHistoryOpen(false)}>
+                    <div className="bg-white rounded-3xl w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+                            <h3 className="text-xl font-bold text-[#364649] flex items-center gap-2">
+                                <Activity size={20} className="text-[#AA895F]" /> Historial de Objetivos
+                            </h3>
+                            <button onClick={() => setHistoryOpen(false)} className="text-gray-400 hover:text-gray-600">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                            {loadingGoals ? <div className="text-center py-10 opacity-50">Cargando...</div> :
+                                historyData.length === 0 ? <div className="text-center py-10 text-gray-400">Sin historial.</div> :
+                                    historyData.map((record, idx) => (
+                                        <div key={record.id} className="border border-gray-100 rounded-xl p-4 bg-gray-50 flex justify-between items-center">
+                                            <div>
+                                                <div className="text-xs font-bold text-[#AA895F] uppercase mb-1">{new Date(record.created_at).toLocaleDateString()}</div>
+                                                <div className="text-sm font-semibold text-[#364649]">Billing: {formatCurrency(record.annual_billing)}</div>
+                                            </div>
+                                            {idx === 0 && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-1 rounded-full">ACTUAL</span>}
+                                        </div>
+                                    ))}
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
         </div>
     );
 }
+
+// OPTIMIZATION: Component defined outside mainly render cycle
+const SegmentedToggle = React.memo(({ value, onChange, options = ['AUTO', 'MANUAL'], disabled }: any) => (
+    <div className={`flex bg-gray-100 p-0.5 rounded-lg border border-gray-200 ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
+        {options.map((opt: string) => {
+            const isSelected = (value && opt === 'MANUAL') || (!value && opt === 'AUTO');
+            return (
+                <button
+                    key={opt}
+                    type="button"
+                    onClick={() => onChange(opt === 'MANUAL')}
+                    className={`flex-1 px-3 py-1 text-[9px] font-black uppercase tracking-wider rounded-md transition-all ${isSelected
+                        ? 'bg-white text-[#364649] shadow-sm'
+                        : 'text-[#364649]/40 hover:text-[#364649]/60'
+                        }`}
+                >
+                    {opt}
+                </button>
+            );
+        })}
+    </div>
+));
 
 export default React.memo(ObjectivesDashboard);

@@ -1,232 +1,153 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Plus, ZoomIn, ZoomOut, Check, Loader2 } from 'lucide-react';
-import { ActivityRecord, VisitRecord } from '../../types';
+import { useHabitStore } from '../../store/useHabitStore';
+import { useBusinessStore } from '../../store/useBusinessStore';
 import { supabase } from '../../services/supabaseClient';
 import CreateEventModal from './CreateEventModal';
+import CalendarHeader from './calendar-parts/CalendarHeader';
+import CalendarGrid from './calendar-parts/CalendarGrid';
+import AgendaView from './calendar-parts/AgendaView';
 
 interface CalendarDashboardProps {
     session: any;
-    activities: ActivityRecord[];
-    visits: VisitRecord[];
-    googleEvents: any[];
-    onEventsChange: (events: any[]) => void;
-    isGoogleSynced: boolean;
-    onSyncChange: (synced: boolean) => void;
-    googleAccessToken: string | null;
-    onTokenChange: (token: string | null) => void;
-    isCheckingSync: boolean;
+    isActive?: boolean;
     targetUserId?: string; // For habit sync
 }
 
-export default function CalendarDashboard({
-    session: propSession,
-    activities,
-    visits,
-    googleEvents,
-    onEventsChange,
-    isGoogleSynced: isSynced, // Rename prop to keep internal usage
-    onSyncChange: setIsSynced,
-    googleAccessToken,
-    onTokenChange: setGoogleAccessToken,
-    isCheckingSync,
-    targetUserId
-}: CalendarDashboardProps) {
+const CalendarDashboard = ({
+    session: propSession, // Optional override
+    isActive = true,      // Default to true if not provided (typical for route-based rendering)
+    targetUserId: propTargetUserId // Optional override
+}: CalendarDashboardProps) => {
+    // Atomic Selectors
+    const authSession = useBusinessStore(s => s.authSession);
+    const storeTargetUserId = useBusinessStore(s => s.targetUserId);
+
+    // Resolve effective values (Props > Store)
+    const session = propSession || authSession;
+    const targetUserId = propTargetUserId || storeTargetUserId || session?.user?.id;
+
+    const activities = useBusinessStore(s => s.activities);
+    const visits = useBusinessStore(s => s.visits);
+    const closings = useBusinessStore(s => s.closings);
+    const properties = useBusinessStore(s => s.properties);
+    const searches = useBusinessStore(s => s.searches);
+    const marketingLogs = useBusinessStore(s => s.marketingLogs);
+    const googleEvents = useBusinessStore(s => s.googleEvents);
+    const isSynced = useBusinessStore(s => s.isGoogleSynced);
+    const googleAccessToken = useBusinessStore(s => s.googleAccessToken);
+    const isCheckingSync = useBusinessStore(s => s.isCheckingGoogleSync);
+    const isGlobalView = useBusinessStore(s => s.isGlobalView);
+    const syncGoogleCalendarEvents = useBusinessStore(s => s.syncGoogleCalendarEvents);
+    const initializeGoogleSync = useBusinessStore(s => s.initializeGoogleSync); // NEW: Selector
+    const updateGoogleEvent = useBusinessStore(s => s.updateGoogleEvent);
+
+    const createGoogleEvent = useBusinessStore(s => s.createGoogleEvent);
+    const deleteGoogleEvent = useBusinessStore(s => s.deleteGoogleEvent);
+    const cleanupGhostEventsFromCalendar = useHabitStore(s => s.cleanupGhostEventsFromCalendar); // NEW: Inverse Orphan Cleanup action
+
     const [currentDate, setCurrentDate] = useState(new Date());
     const [isSyncing, setIsSyncing] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [session, setSession] = useState<any>(propSession);
     const [modalInitialDate, setModalInitialDate] = useState<Date | null>(null);
     const [editingEvent, setEditingEvent] = useState<any | null>(null);
+    const [deleteConfirmEvent, setDeleteConfirmEvent] = useState<any | null>(null);
 
-    // Resize State: Now includes visual feedback data
+    // View State
+    const [viewMode, setViewMode] = useState<'week' | 'day' | 'agenda'>('week');
+
+    const getArgentinaNow = React.useCallback(() => {
+        const str = new Date().toLocaleString("en-US", { timeZone: "America/Argentina/Buenos_Aires" });
+        return new Date(str);
+    }, []);
+
+    // Drag and Drop State
+    const [isDragging, setIsDragging] = useState(false);
+    const [draggedEvent, setDraggedEvent] = useState<any | null>(null);
+
+    // Resize State
     const [isResizing, setIsResizing] = useState(false);
     const [resizePreview, setResizePreview] = useState<{ eventId: string, height: number, timeLabel: string } | null>(null);
     const resizeState = useRef<{ eventId: string, startY: number, originalEnd: Date, originalHeight: number } | null>(null);
 
-    // Zoom control state (height of one hour in pixels)
+    // Zoom control state
     const [hourHeight, setHourHeight] = useState(80);
     const gridRef = useRef<HTMLDivElement>(null);
 
-    // ========== COMPLETION STATE ==========
-    const [habits, setHabits] = useState<{ id: string; name: string }[]>([]);
-    const [dailyLogId, setDailyLogId] = useState<string | null>(null);
-    const [completedEventIds, setCompletedEventIds] = useState<Set<string>>(new Set());
+    // Completion Global Store
+    const habits = useHabitStore(s => s.habits);
+    const rangeCompletions = useHabitStore(s => s.rangeCompletions);
+    const genericCompletions = useHabitStore(s => s.genericCompletions);
+    const storeToggleHabit = useHabitStore(s => s.toggleHabit);
+    const storeToggleGeneric = useHabitStore(s => s.toggleGenericEvent);
+    const fetchCompletionsByRange = useHabitStore(s => s.fetchCompletionsByRange);
+    const fetchInitialData = useHabitStore(s => s.fetchInitialData);
+    const notify = useHabitStore(s => s.notify);
+    const matchEventToHabit = useHabitStore(s => s.matchEventToHabit);
 
-    const fetchCompletionData = async () => {
-        if (!targetUserId) return;
-        const today = new Date().toISOString().split('T')[0];
+    // ========== COMPLETION LOGIC (MEMOIZED) ==========
+    const completedEventIds = React.useMemo(() => {
+        if (!googleEvents.length) return new Set<string>();
+        const newSet = new Set<string>();
+        genericCompletions.forEach(c => newSet.add(c.eventId));
 
-        const { data: habitsData } = await supabase
-            .from('habits')
-            .select('id, name')
-            .eq('user_id', targetUserId)
-            .eq('active', true);
+        const normalizedHabits = habits.map(h => ({
+            id: h.id,
+            normName: h.name.replace(/[^\w\sáéíóúñü]/gi, '').trim().toLowerCase()
+        }));
 
-        if (habitsData) setHabits(habitsData);
-
-        const { data: dailyLog } = await supabase
-            .from('daily_logs')
-            .select('id')
-            .eq('user_id', targetUserId)
-            .eq('date', today)
-            .maybeSingle();
-
-        if (dailyLog) setDailyLogId(dailyLog.id);
-
-        const stored = localStorage.getItem(`completedEvents_${targetUserId}`);
-        if (stored) {
-            try {
-                const parsed = JSON.parse(stored);
-                if (parsed.date === today && Array.isArray(parsed.ids)) {
-                    setCompletedEventIds(new Set(parsed.ids));
+        rangeCompletions.forEach(c => {
+            const hInfo = habits.find(h => h.id === c.habitId);
+            if (!hInfo) return;
+            googleEvents.forEach(ev => {
+                const evDate = ev.start?.dateTime ? new Date(ev.start.dateTime).toISOString().split('T')[0] : ev.start?.date;
+                if (evDate !== c.targetDate) return;
+                const matchedHabit = matchEventToHabit(ev.summary || '');
+                if (matchedHabit?.id === hInfo.id) {
+                    newSet.add(ev.id);
                 }
-            } catch (e) { }
-        }
-    };
-
-    useEffect(() => {
-        fetchCompletionData();
-    }, [targetUserId]);
-
-    useEffect(() => {
-        if (targetUserId && completedEventIds.size > 0) {
-            const today = new Date().toISOString().split('T')[0];
-            localStorage.setItem(`completedEvents_${targetUserId}`, JSON.stringify({
-                date: today,
-                ids: Array.from(completedEventIds)
-            }));
-        }
-    }, [completedEventIds, targetUserId]);
-
-    // Auto-refresh when tab becomes visible (for cross-tab sync)
-    useEffect(() => {
-        const handleVisibilityChange = () => {
-            if (document.visibilityState === 'visible') {
-                fetchCompletionData();
-            }
-        };
-
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-        window.addEventListener('focus', () => fetchCompletionData());
-
-        return () => {
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-            window.removeEventListener('focus', () => { });
-        };
-    }, [targetUserId]);
-
-    const toggleEventCompletion = async (eventId: string, eventTitle: string, eventDate: string) => {
-        if (!eventId || !targetUserId) return;
-        const today = new Date().toISOString().split('T')[0];
-        const isToday = eventDate === today;
-        const isCompleted = completedEventIds.has(eventId);
-
-        setCompletedEventIds(prev => {
-            const newSet = new Set(prev);
-            if (isCompleted) {
-                newSet.delete(eventId);
-            } else {
-                newSet.add(eventId);
-            }
-            return newSet;
+            });
         });
+        return newSet;
+    }, [rangeCompletions, genericCompletions, googleEvents, habits, matchEventToHabit]);
 
-        if (isToday) {
-            // Normalize: remove emojis and extra whitespace for better matching
-            const normalizedTitle = eventTitle.replace(/[^\w\sáéíóúñü]/gi, '').trim().toLowerCase();
-
-            const matchedHabit = habits.find(h => {
-                const normalizedName = h.name.toLowerCase();
-                return normalizedTitle.includes(normalizedName) || normalizedName.includes(normalizedTitle);
-            });
-
-            console.log('[Calendar Habit Sync]', {
-                eventTitle,
-                normalizedTitle,
-                habits: habits.map(h => h.name),
-                matchedHabit: matchedHabit?.name || 'NONE',
-                isToday,
-                isCompleted
-            });
-
-            if (matchedHabit) {
-                try {
-                    let currentLogId = dailyLogId;
-
-                    if (!currentLogId) {
-                        const { data: newLog, error: logError } = await supabase
-                            .from('daily_logs')
-                            .insert({ user_id: targetUserId, date: today })
-                            .select()
-                            .single();
-
-                        if (logError) {
-                            console.error('[Calendar Sync] Error creating daily log:', logError);
-                            return;
-                        }
-
-                        if (newLog) {
-                            currentLogId = newLog.id;
-                            setDailyLogId(newLog.id);
-                        }
-                    }
-
-                    if (isCompleted) {
-                        const { error: deleteError } = await supabase
-                            .from('habit_completions')
-                            .delete()
-                            .eq('daily_log_id', currentLogId)
-                            .eq('habit_id', matchedHabit.id);
-
-                        if (deleteError) {
-                            console.error('[Calendar Sync] Error deleting:', deleteError);
-                        } else {
-                            console.log('[Calendar Sync] UNMARKED:', matchedHabit.name);
-                            // Dispatch for instant cross-component sync
-                            window.dispatchEvent(new CustomEvent('habitCompletionChanged', {
-                                detail: { habitId: matchedHabit.id, completed: false }
-                            }));
-                        }
-                    } else {
-                        const { error: insertError } = await supabase
-                            .from('habit_completions')
-                            .insert({
-                                habit_id: matchedHabit.id,
-                                daily_log_id: currentLogId,
-                                target_date: today,
-                                completed_at: new Date().toISOString()
-                            });
-
-                        if (insertError) {
-                            console.error('[Calendar Sync] Error inserting:', insertError);
-                        } else {
-                            console.log('[Calendar Sync] MARKED:', matchedHabit.name);
-                            // Dispatch for instant cross-component sync
-                            window.dispatchEvent(new CustomEvent('habitCompletionChanged', {
-                                detail: { habitId: matchedHabit.id, completed: true }
-                            }));
-                        }
-                    }
-                } catch (error) {
-                    console.error('[Calendar Sync] Exception:', error);
-                }
-            }
+    useEffect(() => {
+        if (targetUserId && isActive) {
+            if (habits.length === 0) fetchInitialData(targetUserId);
+            const pivot = new Date(currentDate);
+            const day = pivot.getDay();
+            const mondayOffset = day === 0 ? -6 : 1 - day;
+            const startRange = new Date(pivot);
+            startRange.setDate(pivot.getDate() + mondayOffset - 7);
+            const startStr = startRange.toISOString().split('T')[0];
+            const endRange = new Date(startRange);
+            endRange.setDate(startRange.getDate() + 21);
+            const endStr = endRange.toISOString().split('T')[0];
+            fetchCompletionsByRange(targetUserId, startStr, endStr);
         }
-    };
+    }, [targetUserId, currentDate, habits.length, isActive, fetchInitialData, fetchCompletionsByRange]);
 
-    const isEventCompleted = (eventId: string): boolean => {
+    const toggleEventCompletion = React.useCallback(async (eventId: string, eventTitle: string, eventDate: string) => {
+        if (!eventId || !targetUserId) return;
+        const matchedHabit = matchEventToHabit(eventTitle);
+        if (matchedHabit) {
+            await storeToggleHabit(matchedHabit.id, matchedHabit.name, eventDate);
+        } else {
+            await storeToggleGeneric(eventId, eventDate);
+        }
+    }, [targetUserId, storeToggleHabit, storeToggleGeneric, matchEventToHabit]);
+
+    const isEventCompleted = React.useCallback((eventId: string): boolean => {
         return completedEventIds.has(eventId);
-    };
+    }, [completedEventIds]);
 
-    // Google Colors Helper
-    const getGoogleColor = (colorId: string) => {
+    const getGoogleColor = React.useCallback((colorId: string) => {
         const colors: any = {
             '1': '#7986cb', '2': '#33b679', '3': '#8e24aa', '4': '#e67c73',
             '5': '#f6bf26', '6': '#f4511e', '7': '#039be5', '8': '#616161',
             '9': '#3f51b5', '10': '#0b8043', '11': '#d50000'
         };
-        return colors[colorId] || '#039be5'; // Default Blue
-    };
+        return colors[colorId] || '#039be5';
+    }, []);
 
     useEffect(() => {
         const handleWheel = (e: WheelEvent) => {
@@ -236,70 +157,40 @@ export default function CalendarDashboard({
                 setHourHeight(prev => Math.min(200, Math.max(40, prev + delta)));
             }
         };
-
         const gridElement = gridRef.current;
-        if (gridElement) {
-            gridElement.addEventListener('wheel', handleWheel, { passive: false });
-        }
-
-        return () => {
-            if (gridElement) {
-                gridElement.removeEventListener('wheel', handleWheel);
-            }
-        };
+        if (gridElement) gridElement.addEventListener('wheel', handleWheel, { passive: false });
+        return () => { if (gridElement) gridElement.removeEventListener('wheel', handleWheel); };
     }, []);
 
-    // Resize Global Listeners (Live Preview Logic)
     useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
             if (!isResizing || !resizeState.current) return;
-
             const { eventId, startY, originalHeight, originalEnd } = resizeState.current;
             const deltaY = e.clientY - startY;
-
-            // Calculate raw new height
-            const rawHeight = Math.max(25, originalHeight + deltaY); // Min height 25px
-
-            // Calculate snapped time for visual feedback
-            // 5 min blocks. 5 min = hourHeight / 12
+            const rawHeight = Math.max(25, originalHeight + deltaY);
             const blockHeight = hourHeight / 12;
             const snappedHeight = Math.round(rawHeight / blockHeight) * blockHeight;
-
-            // Calculate resulting time
-            // Re-calculate minutes from deltaY directly for time accuracy
             const deltaMinutes = (deltaY / hourHeight) * 60;
             const snappedDeltaMinutes = Math.round(deltaMinutes / 5) * 5;
             const newEndTime = new Date(originalEnd.getTime() + (snappedDeltaMinutes * 60000));
             const timeLabel = newEndTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-            setResizePreview({
-                eventId,
-                height: Math.max(25, snappedHeight),
-                timeLabel
-            });
+            setResizePreview({ eventId, height: Math.max(25, snappedHeight), timeLabel });
         };
-
         const handleMouseUp = async (e: MouseEvent) => {
             if (!isResizing || !resizeState.current) return;
-
             const { eventId, startY, originalEnd } = resizeState.current;
             const deltaY = e.clientY - startY;
             const deltaMinutes = Math.round((deltaY / hourHeight) * 60);
-
-            // Snap to 5 min
             const snappedMinutes = Math.round(deltaMinutes / 5) * 5;
-
             if (snappedMinutes !== 0) {
                 const newEnd = new Date(originalEnd.getTime() + (snappedMinutes * 60000));
-                await updateEventTime(eventId, newEnd);
+                await updateGoogleEvent(eventId, { end: { dateTime: newEnd.toISOString() } });
             }
-
             setIsResizing(false);
             setResizePreview(null);
             resizeState.current = null;
             document.body.style.cursor = 'default';
         };
-
         if (isResizing) {
             window.addEventListener('mousemove', handleMouseMove);
             window.addEventListener('mouseup', handleMouseUp);
@@ -308,138 +199,99 @@ export default function CalendarDashboard({
             window.removeEventListener('mousemove', handleMouseMove);
             window.removeEventListener('mouseup', handleMouseUp);
         };
-    }, [isResizing, hourHeight]);
+    }, [isResizing, hourHeight, updateGoogleEvent]);
 
-    // ... (DB Loading, Sync, APIs - Same as before)
+    const handleDragStart = React.useCallback((e: React.DragEvent, event: any) => {
+        if (event.isSystem) return;
+        setDraggedEvent(event);
+        setIsDragging(true);
+        e.dataTransfer.setData('text/plain', event.id);
+        e.dataTransfer.effectAllowed = 'move';
+        const img = new Image();
+        img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=';
+        e.dataTransfer.setDragImage(img, 0, 0);
+    }, []);
 
-    const refreshGoogleToken = async () => {
+    const handleDragOver = React.useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    }, []);
+
+    const handleDrop = React.useCallback(async (e: React.DragEvent, targetDate: Date, targetHour: number) => {
+        e.preventDefault();
+        setIsDragging(false);
+        if (!draggedEvent) return;
+        const { id, start, end } = draggedEvent;
+        const originalStart = new Date(start.dateTime);
+        const duration = new Date(end.dateTime).getTime() - originalStart.getTime();
+        const newStart = new Date(targetDate);
+        newStart.setHours(targetHour, originalStart.getMinutes(), 0, 0);
+        const newEnd = new Date(newStart.getTime() + duration);
         try {
-            const { data, error } = await supabase.functions.invoke('refresh-google-token');
-            if (error) throw error;
-            if (data?.access_token) {
-                setGoogleAccessToken(data.access_token);
-                setIsSynced(true);
-                return data.access_token;
-            }
-        } catch (error) {
-            console.error('Error refreshing Google token:', error);
-            setIsSynced(false);
-            return null;
-        }
-    };
-
-    useEffect(() => {
-        setSession(propSession);
-        if (propSession?.provider_token) {
-            setGoogleAccessToken(propSession.provider_token);
-            setIsSynced(true);
-            saveGoogleToken(propSession.user.id, propSession.provider_token, propSession.provider_refresh_token);
-        }
-    }, [propSession]);
-
-    const saveGoogleToken = async (userId: string, accessToken: string, refreshToken?: string) => {
-        try {
-            const updates: any = { user_id: userId, provider: 'google_calendar', access_token: accessToken, updated_at: new Date().toISOString() };
-            if (refreshToken) updates.refresh_token = refreshToken;
-            await supabase.from('user_integrations').upsert(updates, { onConflict: 'user_id, provider' });
-        } catch (error) { console.error(error); }
-    };
-
-    // Local state for calendar view events (separate from global Home events)
-    const [localEvents, setLocalEvents] = useState<any[]>(googleEvents);
-
-    // Helper to check if we're viewing the current week
-    const isCurrentWeek = () => {
-        const today = new Date();
-        const todayMonday = new Date(today);
-        const dayOfWeek = today.getDay();
-        const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-        todayMonday.setDate(today.getDate() + mondayOffset);
-        todayMonday.setHours(0, 0, 0, 0);
-
-        const viewMonday = new Date(currentDate);
-        viewMonday.setDate(viewMonday.getDate() - viewMonday.getDay() + 1);
-        viewMonday.setHours(0, 0, 0, 0);
-
-        return todayMonday.getTime() === viewMonday.getTime();
-    };
-
-    const listGoogleEvents = async (token?: string) => {
-        const currentToken = token || googleAccessToken;
-        if (!currentToken) return;
-
-        const startOfWeek = new Date(currentDate);
-        startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay() + 1);
-        startOfWeek.setHours(0, 0, 0, 0);
-        const endOfWeek = new Date(startOfWeek);
-        endOfWeek.setDate(endOfWeek.getDate() + 7);
-
-        try {
-            const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${startOfWeek.toISOString()}&timeMax=${endOfWeek.toISOString()}&singleEvents=true&orderBy=startTime`, {
-                headers: { 'Authorization': `Bearer ${currentToken}` }
-            });
-            if (!response.ok) {
-                if (response.status === 401) {
-                    const newToken = await refreshGoogleToken();
-                    if (newToken) {
-                        return listGoogleEvents(newToken);
-                    }
-                    setIsSynced(false);
-                }
-                throw new Error('Failed to fetch events');
-            }
-            const data = await response.json();
-            const events = data.items || [];
-
-            // Always update local state for calendar display
-            setLocalEvents(events);
-
-            // Only update global state if viewing current week (for Home sync)
-            if (isCurrentWeek()) {
-                onEventsChange(events);
-            }
-        } catch (error) { console.error(error); }
-    };
-
-    const updateEventTime = async (eventId: string, newEnd: Date) => {
-        try {
-            const updatedEvents = localEvents.map(e => {
-                if (e.id === eventId) return { ...e, end: { ...e.end, dateTime: newEnd.toISOString() } };
-                return e;
-            });
-            setLocalEvents(updatedEvents);
-            if (isCurrentWeek()) {
-                onEventsChange(updatedEvents);
-            }
-            await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
-                method: 'PATCH',
-                headers: { 'Authorization': `Bearer ${googleAccessToken}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ end: { dateTime: newEnd.toISOString() } }),
+            await updateGoogleEvent(id, {
+                start: { dateTime: newStart.toISOString() },
+                end: { dateTime: newEnd.toISOString() }
             });
         } catch (error) {
-            console.error("Error resizing event:", error);
-            listGoogleEvents();
+            console.error("Error moving event:", error);
+        } finally {
+            setDraggedEvent(null);
         }
-    }
+    }, [draggedEvent, updateGoogleEvent]);
 
-    // Sync local events with global when component mounts (use global as initial)
-    useEffect(() => {
-        if (googleEvents.length > 0 && localEvents.length === 0) {
-            setLocalEvents(googleEvents);
+    const handleDeleteEvent = async () => {
+        if (!deleteConfirmEvent) return;
+        try {
+            await deleteGoogleEvent(deleteConfirmEvent.id);
+            setDeleteConfirmEvent(null);
+        } catch (error) {
+            console.error("Error deleting event:", error);
         }
-    }, [googleEvents]);
+    };
 
-    // Load events when entering calendar view
+    // Check if we are viewing another user's profile OR the Global aggregate view
+    const isViewingOtherProfile = React.useMemo(() => {
+        if (!targetUserId || !session?.user?.id) return false;
+        // Privacy Guard: Hide personal calendar if viewing another user OR Global aggregate view
+        return targetUserId !== session.user.id || isGlobalView;
+    }, [targetUserId, session, isGlobalView]);
+
+    // PROACTIVE RESTORATION: Ensure sync is updated when switching back to personal profile
+    const lastSyncAttemptRef = React.useRef<number>(0);
     useEffect(() => {
-        if (isSynced && googleAccessToken) {
-            listGoogleEvents();
+        const now = Date.now();
+        // Cooldown of 30 seconds between proactive sync attempts to prevent infinite loops on failure
+        if (!isViewingOtherProfile && !isSynced && !isCheckingSync && session && (now - lastSyncAttemptRef.current > 30000)) {
+            console.log("[CalendarDashboard] Proactive restoration: initializing Google Sync...");
+            lastSyncAttemptRef.current = now;
+            initializeGoogleSync(session);
         }
-    }, [isSynced, googleAccessToken, currentDate]);
+    }, [isViewingOtherProfile, isSynced, isCheckingSync, session, initializeGoogleSync]);
+
+    useEffect(() => {
+        // Prevent sync if looking at another user to avoid showing Mother's calendar on Child's view
+        if (isViewingOtherProfile) return;
+
+        // Sync if we have a token (initiate fetch to validate/refresh)
+        if (googleAccessToken) {
+            syncGoogleCalendarEvents(targetUserId || session?.user?.id || '', googleAccessToken, currentDate);
+
+            // AUTOMATED CLEANUP: Remove ghost habits (INVERSE STRATEGY)
+            // Pass the current events we see on screen so the store can filter them
+            if (googleEvents.length > 0) {
+                cleanupGhostEventsFromCalendar(googleEvents, googleAccessToken).catch(err => console.error("Auto-cleanup failed:", err));
+            }
+        }
+        // CRITICAL PERFORMANCE: REMOVED 'isSynced' from dependencies to prevent recursive loops on 401 failure
+    }, [googleAccessToken, currentDate, targetUserId, session?.user?.id, syncGoogleCalendarEvents, cleanupGhostEventsFromCalendar, googleEvents, isViewingOtherProfile]);
+
+
+
 
     const handleEventSubmit = async (eventData: any) => {
-        if (!googleAccessToken) { alert('Sincroniza primero.'); return; }
+        if (isViewingOtherProfile) { notify('No puedes editar el calendario de otro usuario.', 'error'); return; }
+        if (!googleAccessToken) { notify('Sincroniza primero tu calendario.', 'info'); return; }
         const isUpdate = !!eventData.id;
-        const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events${isUpdate ? '/' + eventData.id : ''}`;
         const body: any = {
             'summary': eventData.summary,
             'location': eventData.location,
@@ -449,70 +301,56 @@ export default function CalendarDashboard({
             'colorId': eventData.colorId
         };
         try {
-            const response = await fetch(url, {
-                method: isUpdate ? 'PATCH' : 'POST',
-                headers: { 'Authorization': `Bearer ${googleAccessToken}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            });
-            if (!response.ok) throw new Error('API Error');
-            listGoogleEvents();
+            if (isUpdate) {
+                await updateGoogleEvent(eventData.id, body);
+            } else {
+                await createGoogleEvent(body, 'primary', currentDate);
+            }
             setEditingEvent(null);
-        } catch (error: any) { alert('Error: ' + error.message); }
+            notify(isUpdate ? 'Evento actualizado' : 'Evento creado', 'success');
+        } catch (error: any) { notify('Error: ' + error.message, 'error'); }
     };
 
-    const getWeekDays = (date: Date) => {
-        const start = new Date(date);
-        start.setDate(start.getDate() - start.getDay() + 1);
-        const days = [];
-        for (let i = 0; i < 7; i++) {
-            const d = new Date(start);
-            d.setDate(start.getDate() + i);
-            days.push(d);
-        }
-        return days;
-    };
+    const isSameDay = React.useCallback((d1: Date, d2: any) => {
+        if (!d2) return false;
+        try {
+            let dateVal = d2.dateTime || d2.date || d2;
+            const targetDate = new Date(dateVal);
+            if (isNaN(targetDate.getTime())) return false;
+            const options: Intl.DateTimeFormatOptions = {
+                timeZone: 'America/Argentina/Buenos_Aires',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            };
+            const formatter = new Intl.DateTimeFormat('en-CA', options);
+            return formatter.format(d1) === formatter.format(targetDate);
+        } catch (e) { return false; }
+    }, []);
 
-    const weekDays = getWeekDays(currentDate);
-    const hours = Array.from({ length: 17 }, (_, i) => i + 8);
-    const nextWeek = () => { const d = new Date(currentDate); d.setDate(d.getDate() + 7); setCurrentDate(d); };
-    const prevWeek = () => { const d = new Date(currentDate); d.setDate(d.getDate() - 7); setCurrentDate(d); };
-    const isSameDay = (d1: Date, d2: string) => {
-        const target = new Date(d2 + 'T12:00:00');
-        return d1.getDate() === target.getDate() && d1.getMonth() === target.getMonth() && d1.getFullYear() === target.getFullYear();
-    };
-
-    const layoutEvents = (events: any[]) => {
-        // 1. Sort by start time
-        const sorted = [...events].sort((a, b) => new Date(a.start.dateTime || a.start.date).getTime() - new Date(b.start.dateTime || b.start.date).getTime());
-
-        // 2. Group into Clusters (Disjoint sets of overlapping events)
+    const layoutEvents = React.useCallback((events: any[]) => {
+        const sorted = [...events].sort((a, b) => {
+            const timeA = new Date(a.start.dateTime || a.start.date).getTime();
+            const timeB = new Date(b.start.dateTime || b.start.date).getTime();
+            return timeA - timeB;
+        });
         const clusters: any[][] = [];
         let currentCluster: any[] = [];
         let clusterEnd = 0;
-
         sorted.forEach(event => {
             const start = new Date(event.start.dateTime || event.start.date).getTime();
             const end = new Date(event.end.dateTime || event.end.date).getTime();
-
             if (currentCluster.length === 0) {
-                currentCluster.push(event);
-                clusterEnd = end;
+                currentCluster.push(event); clusterEnd = end;
             } else {
-                // If event starts before the current cluster chain ends -> It overlaps/connects
                 if (start < clusterEnd) {
-                    currentCluster.push(event);
-                    clusterEnd = Math.max(clusterEnd, end);
+                    currentCluster.push(event); clusterEnd = Math.max(clusterEnd, end);
                 } else {
-                    // Gap detected -> Close cluster
-                    clusters.push(currentCluster);
-                    currentCluster = [event];
-                    clusterEnd = end;
+                    clusters.push(currentCluster); currentCluster = [event]; clusterEnd = end;
                 }
             }
         });
         if (currentCluster.length > 0) clusters.push(currentCluster);
-
-        // 3. Layout each cluster independently
         return clusters.flatMap(cluster => {
             const columns: any[][] = [];
             cluster.forEach(event => {
@@ -522,69 +360,190 @@ export default function CalendarDashboard({
                     const col = columns[i];
                     const lastEventInCol = col[col.length - 1];
                     const lastEnd = new Date(lastEventInCol.end.dateTime || lastEventInCol.end.date).getTime();
-
-                    // Greedy packing: If fits in column, place it.
                     if (start >= lastEnd) {
-                        col.push(event);
-                        event._col = i;
-                        placed = true;
-                        break;
+                        col.push(event); event._col = i; placed = true; break;
                     }
                 }
-                if (!placed) {
-                    columns.push([event]);
-                    event._col = columns.length - 1;
-                }
+                if (!placed) { columns.push([event]); event._col = columns.length - 1; }
             });
 
-            // Map styles for this cluster
-            return cluster.map(event => ({
-                ...event,
-                _style: {
-                    left: `${(event._col * (100 / columns.length))}%`,
-                    width: `${(100 / columns.length) - 1}%` // -1% gap
+            const maxCols = columns.length;
+            return cluster.map(event => {
+                const left = (event._col / maxCols) * 100;
+
+                // Level 2 Overlap: We make it much wider (2.8x) so it's always readable.
+                // Even with 4 columns, width will be ~70%, stacking behind neighbors.
+                const boxWidth = 100 / maxCols;
+                // Side-by-Side Layout: Strict columns with gap, no overlap to ensure back cards are visible.
+                const width = maxCols > 1 ? boxWidth - 1 : 98;
+
+                return {
+                    ...event,
+                    _style: {
+                        left: `${left}%`,
+                        width: `${width}%`,
+                        zIndex: 10 + event._col,
+                    }
+                };
+            });
+        });
+    }, []);
+
+    const getEventsForDay = React.useCallback((day: Date) => {
+        const dayVisits = (visits || []).filter(v => isSameDay(day, v.date));
+        const dayActivities = (activities || []).filter(a => isSameDay(day, a.date));
+        const dayClosings = (closings || []).filter(c => isSameDay(day, c.date));
+        const dayProperties = (properties || []).filter(p => isSameDay(day, p.createdAt));
+        const daySearches = (searches || []).filter(s => isSameDay(day, s.createdAt));
+        const dayMarketing = (marketingLogs || []).filter(m => isSameDay(day, m.date));
+
+        // Filter Google Events: Show ONLY if NOT viewing other profile
+        // If viewing other profile, checking `isViewingOtherProfile` hook result reference here or passing it down might be cleaner?
+        // But since this useCallback depends on [googleEvents], and useEffect blocks syncing googleEvents, 
+        // effectively googleEvents global store might still have data from previous view if we don't clear it.
+        // It's safer to filter here too or ensure store is cleared.
+        // For now, let's assume useEffect handles the fetch blockage, but we also filter visually just in case.
+
+        const rawGoogleEvents = isViewingOtherProfile ? [] : googleEvents.filter((e: any) => e.start && isSameDay(day, e.start));
+
+        const mappedGoogleEvents = rawGoogleEvents.map((e: any) => {
+            const isAllDay = !e.start.dateTime;
+            let start = new Date(e.start.dateTime || e.start.date);
+            let end = new Date(e.end.dateTime || e.end.date);
+            if (isAllDay) {
+                const dateStr = e.start.date || '';
+                if (dateStr.includes('-')) {
+                    const [y, m, d] = dateStr.split('-').map(Number);
+                    start = new Date(y, m - 1, d, 8, 0, 0);
+                    end = new Date(y, m - 1, d, 9, 0, 0);
+                } else {
+                    start = new Date(dateStr); start.setHours(8, 0, 0); end = new Date(start); end.setHours(9, 0, 0);
                 }
-            }));
-        });
-    };
-
-    const getEventsForDay = (day: Date) => {
-        const dayVisits = visits.filter(v => isSameDay(day, v.date));
-        const dayActivities = activities.filter(a => isSameDay(day, a.date));
-        const rawGoogleEvents = localEvents.filter((e: any) => {
-            const eventDate = e.start.dateTime || e.start.date;
-            const target = new Date(eventDate);
-            return day.getDate() === target.getDate() && day.getMonth() === target.getMonth() && day.getFullYear() === target.getFullYear();
+            }
+            return { ...e, start: { dateTime: start.toISOString() }, end: { dateTime: end.toISOString() }, isAllDay };
         });
 
-        // Filter out All Day events for the hourly grid layout
-        // All Day events have 'date' but no 'dateTime'
-        // ALSO filter events starting < 8am because the renderer hides them (prevening "Ghost Columns")
-        const timedEvents = rawGoogleEvents.filter((e: any) => {
-            if (!e.start.dateTime) return false;
-            const h = new Date(e.start.dateTime).getHours();
-            return h >= 8 && h < 24;
-        });
-
-        // DEDUPLICATION: Merge identical events (Same Start + Same Summary)
-        // This prevents "split columns" if the user accidentally has duplicates or sync errors
-        const uniqueEvents: any[] = [];
+        const dayGoogleEventsTimed: any[] = [];
+        const dayGoogleEventsAllDay: any[] = [];
         const seenKeys = new Set();
 
-        timedEvents.forEach((e: any) => {
-            const key = `${e.start.dateTime}-${e.summary}`;
+        mappedGoogleEvents.forEach((e: any) => {
+            const key = `${e.start.dateTime || e.start.date}-${e.summary}`;
             if (!seenKeys.has(key)) {
                 seenKeys.add(key);
-                uniqueEvents.push(e);
+                if (e.isAllDay) dayGoogleEventsAllDay.push(e); else dayGoogleEventsTimed.push(e);
             }
         });
 
-        const dayGoogleEvents = layoutEvents(uniqueEvents);
+        const mappedVisits = dayVisits.map(v => {
+            if (!v.date) return null;
+            const cleanDate = typeof v.date === 'string' ? v.date.split(' ')[0].split('T')[0] : '';
+            if (!cleanDate) return null;
+            const startTimeStr = `${cleanDate}T${v.time || '10:00'}:00-03:00`;
+            const startTime = new Date(startTimeStr);
+            return {
+                id: v.id,
+                summary: `📍 VISITA: ${v.manualPropertyAddress || 'Propiedad'}`,
+                start: { dateTime: startTime.toISOString() },
+                end: { dateTime: new Date(startTime.getTime() + (parseInt(v.duration) || 60) * 60000).toISOString() },
+                colorId: '10', isSystem: true, type: 'visit'
+            };
+        }).filter(Boolean);
 
-        return { dayVisits, dayActivities, dayGoogleEvents };
-    };
+        const mappedClosings = dayClosings.map((c, idx) => {
+            const cleanDate = typeof c.date === 'string' ? c.date.split(' ')[0].split('T')[0] : '';
+            if (!cleanDate) return null;
+            const startHour = Math.min(10 + idx, 22);
+            const startTimeStr = `${cleanDate}T${startHour.toString().padStart(2, '0')}:00:00-03:00`;
+            const startTime = new Date(startTimeStr);
+            return {
+                id: c.id,
+                summary: `💰 CIERRE: ${c.manualProperty || 'Cierre'} - ${c.currency} ${c.totalBilling.toLocaleString()}`,
+                start: { dateTime: startTime.toISOString() },
+                end: { dateTime: new Date(startTime.getTime() + 60 * 60000).toISOString() },
+                colorId: '2', isSystem: true, type: 'closing'
+            };
+        }).filter(Boolean);
 
-    const handleSyncGoogleCalendar = async () => {
+        const mappedCaptures = dayProperties.map((p, idx) => {
+            const cleanDate = typeof p.createdAt === 'string' ? p.createdAt.split('T')[0].split(' ')[0] : '';
+            if (!cleanDate) return null;
+            const startHour = Math.min(14 + idx, 23);
+            const startTimeStr = `${cleanDate}T${startHour.toString().padStart(2, '0')}:00:00-03:00`;
+            const startTime = new Date(startTimeStr);
+            return {
+                id: `cap-${p.id}`,
+                summary: `🏠 CAPTACIÓN: ${p.address.street} ${p.address.number}`,
+                start: { dateTime: startTime.toISOString() },
+                end: { dateTime: new Date(startTime.getTime() + 30 * 60000).toISOString() },
+                colorId: '6', isSystem: true, type: 'capture'
+            };
+        }).filter(Boolean);
+
+        const mappedSearches = daySearches.map((s, idx) => {
+            const cleanDate = typeof s.createdAt === 'string' ? s.createdAt.split('T')[0].split(' ')[0] : '';
+            if (!cleanDate) return null;
+            const startHour = Math.min(16 + idx, 23);
+            const startTimeStr = `${cleanDate}T${startHour.toString().padStart(2, '0')}:00:00-03:00`;
+            const startTime = new Date(startTimeStr);
+            return {
+                id: `search-${s.id}`,
+                summary: `🔍 BÚSQUEDA: ${s.agentName}`,
+                start: { dateTime: startTime.toISOString() },
+                end: { dateTime: new Date(startTime.getTime() + 30 * 60000).toISOString() },
+                colorId: '9', isSystem: true, type: 'search'
+            };
+        }).filter(Boolean);
+
+        const mappedMarketing = dayMarketing.map((m, idx) => {
+            const cleanDate = typeof m.date === 'string' ? m.date.split('T')[0].split(' ')[0] : '';
+            if (!cleanDate) return null;
+            const startHour = Math.min(18 + idx, 23);
+            const startTimeStr = `${cleanDate}T${startHour.toString().padStart(2, '0')}:00:00-03:00`;
+            const startTime = new Date(startTimeStr);
+            return {
+                id: `mkt-${m.id}`,
+                summary: `📢 MKT: Actualización Portales`,
+                start: { dateTime: startTime.toISOString() },
+                end: { dateTime: new Date(startTime.getTime() + 30 * 60000).toISOString() },
+                colorId: '4', isSystem: true, type: 'marketing'
+            };
+        }).filter(Boolean);
+
+        const closingIds = new Set(dayClosings.map(c => c.id));
+        const mappedActivities = dayActivities.filter(a => !a.referenceId || !closingIds.has(a.referenceId)).map((a, idx) => {
+            const cleanDate = typeof a.date === 'string' ? a.date.split(' ')[0].split('T')[0] : '';
+            if (!cleanDate) return null;
+            let startHour = 9; let startMin = 0;
+            if (a.time && a.time.includes(':')) {
+                const [h, m] = a.time.split(':').map(Number);
+                if (!isNaN(h)) startHour = h; if (!isNaN(m)) startMin = m;
+            } else { startHour = Math.min(9 + idx, 23); }
+            const startTimeStr = `${cleanDate}T${startHour.toString().padStart(2, '0')}:${startMin.toString().padStart(2, '0')}:00-03:00`;
+            const startTime = new Date(startTimeStr);
+            return {
+                id: a.id,
+                summary: `${a.type.toUpperCase()}: ${a.contactName}`,
+                start: { dateTime: startTime.toISOString() },
+                end: { dateTime: new Date(startTime.getTime() + 45 * 60000).toISOString() },
+                colorId: (a.type as string) === 'act_verde' || (a.type as string) === 'reunion_verde' ? '10' :
+                    (a.type as string) === 'act_roja' ? '11' :
+                        (a.type as string) === 'pre_listing' ? '10' : // Updated to Green (Basil)
+                            (a.type as string) === 'pre_buying' ? '6' : '7',
+                isSystem: true, type: 'activity', isAuto: a.systemGenerated
+            };
+        }).filter(Boolean);
+
+        const dayGoogleEvents = layoutEvents([
+            ...dayGoogleEventsTimed, ...mappedVisits, ...mappedClosings, ...mappedCaptures, ...mappedSearches, ...mappedMarketing, ...mappedActivities
+        ]);
+
+        return { dayGoogleEvents, dayGoogleEventsAllDay };
+    }, [visits, activities, closings, properties, searches, marketingLogs, googleEvents, isSameDay, layoutEvents, isViewingOtherProfile]); // Added isViewingOtherProfile dependency
+
+
+
+    const handleSyncGoogleCalendar = React.useCallback(async () => {
         setIsSyncing(true);
         try {
             await supabase.auth.signInWithOAuth({
@@ -595,49 +554,153 @@ export default function CalendarDashboard({
                     redirectTo: window.location.origin + '?tab=calendar'
                 },
             });
-        } catch (error: any) { alert(`Error: ${error.message}`); } finally { setIsSyncing(false); }
-    };
+        } catch (error: any) { notify(`Error: ${error.message}`, 'error'); } finally { setIsSyncing(false); }
+    }, [notify]);
 
-    const handleGridClick = (date: Date, hour: number) => {
+    const handleGridClick = React.useCallback((date: Date, hour: number) => {
         const d = new Date(date); d.setHours(hour, 0, 0, 0);
         setModalInitialDate(d); setEditingEvent(null); setIsModalOpen(true);
-    };
+    }, []);
 
-    const handleEditClick = (e: React.MouseEvent, event: any) => {
+    const handleEditClick = React.useCallback((e: React.MouseEvent, event: any) => {
         e.stopPropagation(); setEditingEvent(event); setModalInitialDate(null); setIsModalOpen(true);
-    };
+    }, []);
 
-    const handleResizeStart = (e: React.MouseEvent, event: any) => {
-        e.stopPropagation();
-        e.preventDefault();
-        setIsResizing(true);
-        document.body.style.cursor = 'ns-resize';
-
-        // Find current height for correct offset assumption
-        // We can approximate or better yet, get from DOM target?
-        // Since we are clicking the handle which is at bottom, clientY IS the bottom.
-        // We know start time, so we know 'top'. height = clientY - top (relative to container).
-        // Simpler: Just track delta from MOUSE DOWN.
-        // But we need 'originalHeight' to add delta to.
-        // Calculate originalHeight from event duration
+    const handleResizeStart = React.useCallback((e: React.MouseEvent, event: any) => {
+        e.stopPropagation(); e.preventDefault(); setIsResizing(true); document.body.style.cursor = 'ns-resize';
         const start = new Date(event.start.dateTime || event.start.date);
         const end = new Date(event.end.dateTime || event.end.date);
         const durationMin = (end.getTime() - start.getTime()) / 60000;
-        const originalHeight = (durationMin / 60) * hourHeight;
+        const oH = (durationMin / 60) * hourHeight;
+        resizeState.current = { eventId: event.id, startY: e.clientY, originalEnd: end, originalHeight: oH };
+    }, [hourHeight]);
 
-        resizeState.current = {
-            eventId: event.id,
-            startY: e.clientY,
-            originalEnd: end,
-            originalHeight
-        };
-    };
+    const getWeekDays = React.useCallback((date: Date) => {
+        const start = new Date(date); const day = start.getDay();
+        const mondayOffset = day === 0 ? -6 : 1 - day;
+        start.setDate(start.getDate() + mondayOffset);
+        const days = [];
+        for (let i = 0; i < 7; i++) {
+            const d = new Date(start); d.setDate(start.getDate() + i); d.setHours(0, 0, 0, 0);
+            days.push(d);
+        }
+        return days;
+    }, []);
 
-    // We no longer block the whole screen with a loader. 
-    // We just let the UI render and the "Conectar Google" button will show current status.
+    const weekDays = React.useMemo(() => getWeekDays(currentDate), [currentDate, getWeekDays]);
+
+    // PERFORMANCE: Pre-calculate events for all visible days to avoid recalculation on every render
+    const eventsByDay = React.useMemo(() => {
+        const map = new Map<string, ReturnType<typeof getEventsForDay>>();
+        weekDays.forEach(day => {
+            const key = day.toISOString().split('T')[0];
+            map.set(key, getEventsForDay(day));
+        });
+        return map;
+    }, [weekDays, getEventsForDay]);
+
+    // PERFORMANCE: Stable callbacks for CalendarHeader
+    const handlePrevWeek = React.useCallback(() => {
+        setCurrentDate(d => { const nd = new Date(d); nd.setDate(nd.getDate() - 7); return nd; });
+    }, []);
+
+    const handleNextWeek = React.useCallback(() => {
+        setCurrentDate(d => { const nd = new Date(d); nd.setDate(nd.getDate() + 7); return nd; });
+    }, []);
+
+    const handleToday = React.useCallback(() => setCurrentDate(new Date()), []);
+
+    const handleNewEvent = React.useCallback(() => {
+        setModalInitialDate(null); setIsModalOpen(true);
+    }, []);
+
+    if (isViewingOtherProfile) {
+        return (
+            <div className="flex flex-col items-center justify-center h-[600px] text-center p-8 bg-white/50 rounded-3xl border-2 border-dashed border-gray-200">
+                <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-6 text-3xl">🔒</div>
+                <h3 className="text-xl font-bold text-[#364649] mb-2">
+                    {isGlobalView ? 'Calendario en Vista Global' : 'Calendario Privado'}
+                </h3>
+                <p className="text-gray-500 max-w-md">
+                    {isGlobalView
+                        ? 'Estás en la vista global del equipo. Por privacidad y orden, tu calendario personal solo es visible en tu perfil individual.'
+                        : 'Estás viendo el perfil de otro usuario. Por motivos de privacidad y seguridad, no puedes ver ni editar su Google Calendar, solo sus actividades registradas en el sistema.'}
+                </p>
+            </div>
+        );
+    }
 
     return (
-        <div className="space-y-6 pb-20 animate-fade-in-up">
+        <div className="space-y-6 pb-20">
+
+            <CalendarHeader
+                currentDate={currentDate}
+                onPrevWeek={handlePrevWeek}
+                onNextWeek={handleNextWeek}
+                onToday={handleToday}
+                viewMode={viewMode}
+                setViewMode={setViewMode}
+                isSynced={isSynced}
+                isCheckingSync={isCheckingSync}
+                isSyncing={isSyncing}
+                onSync={handleSyncGoogleCalendar}
+                onNewEvent={handleNewEvent}
+                hourHeight={hourHeight}
+                setHourHeight={setHourHeight}
+            />
+
+            {/* Sync Lost / Error State for personal view - Rendered BELOW header */}
+            {(!isSynced && !isCheckingSync) ? (
+                <div className="flex flex-col items-center justify-center h-[500px] text-center p-8 bg-white/50 rounded-3xl border-2 border-dashed border-gray-200">
+                    <div className="w-20 h-20 bg-orange-50 rounded-full flex items-center justify-center mb-6 text-3xl">⚠️</div>
+                    <h3 className="text-xl font-bold text-[#364649] mb-2">Conexión con Google Perdida</h3>
+                    <p className="text-gray-500 max-w-md mb-8">
+                        Tu sesión de Google ha expirado o no se pudo renovar automáticamente.
+                        Necesitas volver a vincular tu cuenta para ver o editar tus eventos.
+                    </p>
+                    <button
+                        onClick={handleSyncGoogleCalendar}
+                        disabled={isCheckingSync}
+                        className="px-8 py-3 bg-[#364649] text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl hover:translate-y-[-2px] transition-all flex items-center gap-2"
+                    >
+                        {isCheckingSync ? 'Conectando...' : 'Revincular Google Calendar'}
+                    </button>
+                </div>
+            ) : (
+
+                viewMode !== 'agenda' ? (
+                    <CalendarGrid
+                        viewMode={viewMode}
+                        weekDays={weekDays}
+                        currentDate={currentDate}
+                        hours={Array.from({ length: 19 }, (_, i) => i + 6)}
+                        hourHeight={hourHeight}
+                        eventsByDay={eventsByDay}
+                        toggleEventCompletion={toggleEventCompletion}
+                        isEventCompleted={isEventCompleted}
+                        handleGridClick={handleGridClick}
+                        handleDrop={handleDrop}
+                        handleDragOver={handleDragOver}
+                        handleDragStart={handleDragStart}
+                        handleEditClick={handleEditClick}
+                        handleResizeStart={handleResizeStart}
+                        getGoogleColor={getGoogleColor}
+                        isDragging={isDragging}
+                        resizePreview={resizePreview}
+                        setDeleteConfirmEvent={setDeleteConfirmEvent}
+                        getArgentinaNow={getArgentinaNow}
+                        isSameDay={isSameDay}
+                        gridRef={gridRef}
+                    />
+                ) : (
+                    <AgendaView
+                        googleEvents={googleEvents}
+                        isEventCompleted={isEventCompleted}
+                        toggleEventCompletion={toggleEventCompletion}
+                        getGoogleColor={getGoogleColor}
+                    />
+                ))}
+
             <CreateEventModal
                 isOpen={isModalOpen}
                 onClose={() => { setIsModalOpen(false); setEditingEvent(null); }}
@@ -646,142 +709,21 @@ export default function CalendarDashboard({
                 eventToEdit={editingEvent}
             />
 
-            <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-[#364649] tracking-tight">Calendario</h1>
-                    <p className="text-[#364649]/60 text-sm font-medium">Gestiona tu agenda y sincroniza</p>
-                </div>
-                <div className="flex gap-3">
-                    <button onClick={handleSyncGoogleCalendar} disabled={isSynced || isSyncing} className={`px-4 py-2 rounded-xl font-bold transition-all flex items-center gap-2 ${isSynced ? 'bg-green-100 text-green-700' : 'bg-white text-[#364649]'}`}>
-                        <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Google_Calendar_icon_%282020%29.svg" alt="Google" className="w-5 h-5" />
-                        <span className="hidden md:inline">{isSyncing || isCheckingSync ? 'Cargando...' : (isSynced ? 'Sincronizado' : 'Conectar Google')}</span>
-                    </button>
-                    <button onClick={() => { setModalInitialDate(null); setIsModalOpen(true); }} className="bg-[#AA895F] text-white px-4 py-2 rounded-xl font-bold shadow-lg flex items-center gap-2">
-                        <Plus size={18} /> <span className="hidden md:inline">Evento</span>
-                    </button>
-                </div>
-            </div>
-
-            <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#364649]/10 flex justify-between items-center">
-                <div className="flex items-center gap-4">
-                    <button onClick={prevWeek} className="p-2 hover:bg-gray-100 rounded-lg"><ChevronLeft size={20} /></button>
-                    <h2 className="text-xl font-bold text-[#364649] capitalize">{currentDate.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}</h2>
-                    <button onClick={nextWeek} className="p-2 hover:bg-gray-100 rounded-lg"><ChevronRight size={20} /></button>
-                </div>
-                <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-1 border border-gray-100">
-                        <ZoomOut size={16} onClick={() => setHourHeight(h => Math.max(40, h - 20))} className="cursor-pointer text-gray-500" />
-                        <span className="text-xs font-bold text-gray-400 w-12 text-center">ZOOM</span>
-                        <ZoomIn size={16} onClick={() => setHourHeight(h => Math.min(200, h + 20))} className="cursor-pointer text-gray-500" />
-                    </div>
-                    <button onClick={() => setCurrentDate(new Date())} className="text-sm font-bold text-[#AA895F]">Hoy</button>
-                </div>
-            </div>
-
-            <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-[#364649]/10">
-                <div className="grid grid-cols-8 border-b border-gray-100">
-                    <div className="p-4 bg-gray-50 border-r border-gray-100"></div>
-                    {weekDays.map((date, i) => (
-                        <div key={i} className={`p-4 text-center border-r border-gray-100 ${date.toDateString() === new Date().toDateString() ? 'bg-[#AA895F]/5' : ''}`}>
-                            <p className="text-xs font-bold uppercase text-[#364649]/50">{date.toLocaleDateString('es-AR', { weekday: 'short' })}</p>
-                            <p className="text-xl font-bold mt-1 text-[#364649]">{date.getDate()}</p>
+            {deleteConfirmEvent && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in duration-300">
+                        <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center text-red-500 mb-6 font-bold text-3xl">!</div>
+                        <h3 className="text-2xl font-black text-[#364649] mb-2">¿Eliminar evento?</h3>
+                        <p className="text-gray-500 text-sm mb-8 leading-relaxed">Esta acción eliminará permanentemente de tu calendario.</p>
+                        <div className="flex gap-4">
+                            <button onClick={() => setDeleteConfirmEvent(null)} className="flex-1 py-4 px-6 rounded-2xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200">Cancelar</button>
+                            <button onClick={handleDeleteEvent} className="flex-1 py-4 px-6 rounded-2xl font-bold text-white bg-red-500 hover:bg-red-600">Eliminar</button>
                         </div>
-                    ))}
-                </div>
-                <div ref={gridRef} className="grid grid-cols-8 h-[600px] overflow-y-auto custom-scrollbar">
-                    <div className="bg-gray-50 border-r border-gray-100">
-                        {hours.map(h => (
-                            <div key={h} style={{ height: `${hourHeight}px` }} className="border-b border-gray-100 text-xs text-gray-400 font-bold p-2 text-right">
-                                {h === 24 ? '00' : h}:00
-                            </div>
-                        ))}
                     </div>
-                    {weekDays.map((date, i) => {
-                        const { dayVisits, dayActivities, dayGoogleEvents } = getEventsForDay(date);
-                        return (
-                            <div key={i} className={`border-r border-gray-100 relative ${date.toDateString() === new Date().toDateString() ? 'bg-[#AA895F]/5' : ''}`}>
-                                {hours.map(h => (
-                                    <div key={h} onClick={() => handleGridClick(date, h)} style={{ height: `${hourHeight}px` }} className="border-b border-gray-100 cursor-pointer hover:bg-[#AA895F]/10"></div>
-                                ))}
-                                <div className="absolute top-0 left-0 w-full h-full p-1 pointer-events-none">
-                                    {dayGoogleEvents.map((e: any) => {
-                                        const eventTime = new Date(e.start.dateTime || e.start.date);
-                                        const hour = eventTime.getHours();
-                                        if (hour < 8 || hour >= 24) return null;
-                                        const top = (hour - 8) * hourHeight + (eventTime.getMinutes() / 60) * hourHeight;
-
-                                        let height = hourHeight;
-                                        if (e.end?.dateTime) {
-                                            const endTime = new Date(e.end.dateTime);
-                                            height = ((endTime.getTime() - eventTime.getTime()) / 60000 / 60) * hourHeight;
-                                        }
-
-                                        // Apply Resize overrides if active
-                                        let displayHeight = height;
-                                        let showLabel = false;
-                                        let labelTime = '';
-
-                                        if (resizePreview && resizePreview.eventId === e.id) {
-                                            displayHeight = resizePreview.height;
-                                            showLabel = true;
-                                            labelTime = resizePreview.timeLabel;
-                                        }
-
-                                        // Get event date as YYYY-MM-DD
-                                        const eventDate = date.toISOString().split('T')[0];
-
-                                        // Check if this event is completed (by unique event ID)
-                                        const isCompleted = isEventCompleted(e.id);
-
-                                        return (
-                                            <div key={e.id}
-                                                onDoubleClick={(ev) => handleEditClick(ev, e)}
-                                                onClick={(ev) => {
-                                                    ev.stopPropagation();
-                                                    toggleEventCompletion(e.id, e.summary || '', eventDate);
-                                                }}
-                                                className={`text-white text-[10px] p-1.5 rounded-lg shadow-sm pointer-events-auto cursor-pointer hover:shadow-md transition-all z-10 group overflow-hidden ${resizePreview?.eventId === e.id ? 'opacity-90 ring-2 ring-blue-400 z-50' : ''} ${isCompleted ? 'opacity-70 ring-2 ring-green-400' : 'ring-2 ring-white/30'}`}
-                                                style={{
-                                                    top: `${top}px`,
-                                                    height: `${Math.max(displayHeight, 25)}px`,
-                                                    position: 'absolute',
-                                                    backgroundColor: isCompleted ? '#22c55e' : getGoogleColor(e.colorId),
-                                                    ...e._style
-                                                }}
-                                                title={isCompleted ? 'Click para desmarcar' : 'Click para marcar completado'}
-                                            >
-                                                <div className="flex justify-between items-start">
-                                                    <p className={`font-bold truncate flex-1 ${isCompleted ? 'line-through' : ''}`}>
-                                                        {e.summary}
-                                                    </p>
-                                                    {/* CHECKBOX VISUAL */}
-                                                    <span className="ml-1 text-sm">
-                                                        {isCompleted ? '✅' : '⬜'}
-                                                    </span>
-                                                    {showLabel && (
-                                                        <span className="bg-black/50 px-1 rounded text-[9px] font-mono whitespace-nowrap ml-1">
-                                                            {labelTime}
-                                                        </span>
-                                                    )}
-                                                </div>
-
-                                                {/* Resize Handle */}
-                                                <div
-                                                    onMouseDown={(ev) => handleResizeStart(ev, e)}
-                                                    className="absolute bottom-0 left-0 w-full h-2 cursor-ns-resize hover:bg-white/30 transition-colors flex justify-center items-end pb-0.5"
-                                                >
-                                                    {/* Visual grip indicator */}
-                                                    <div className="w-8 h-1 bg-white/40 rounded-full"></div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        );
-                    })}
                 </div>
-            </div>
+            )}
         </div>
     );
-}
+};
+
+export default React.memo(CalendarDashboard);

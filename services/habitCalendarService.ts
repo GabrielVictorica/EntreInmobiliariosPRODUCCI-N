@@ -79,10 +79,14 @@ export async function createRecurringHabitEvent(
         // Caso Flexible/Anytime → Evento all-day recurrente
         if (habit.scheduleType === 'flexible' && habit.preferredBlock === 'anytime') {
             const dateStr = startDate.toISOString().split('T')[0];
+            const nextDay = new Date(startDate);
+            nextDay.setDate(nextDay.getDate() + 1);
+            const nextDayStr = nextDay.toISOString().split('T')[0];
+
             eventBody = {
                 summary,
                 start: { date: dateStr },
-                end: { date: dateStr },
+                end: { date: nextDayStr },
                 colorId: HABIT_COLOR_ID,
                 description: `📋 Hábito programado\n⏱️ Duración estimada: ${durationMinutes} min`,
                 transparency: 'transparent',
@@ -105,14 +109,21 @@ export async function createRecurringHabitEvent(
             startDate.setHours(startHour, startMinute, 0, 0);
             const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
 
+            // Google uses ISO strings. To avoid issues with "Z" (UTC) vs local, 
+            // we'll send the local-time part + timeZone name.
+            const toLocalISO = (d: Date) => {
+                const pad = (n: number) => n < 10 ? '0' + n : n;
+                return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+            };
+
             eventBody = {
                 summary,
                 start: {
-                    dateTime: startDate.toISOString(),
+                    dateTime: toLocalISO(startDate),
                     timeZone: 'America/Argentina/Buenos_Aires'
                 },
                 end: {
-                    dateTime: endDate.toISOString(),
+                    dateTime: toLocalISO(endDate),
                     timeZone: 'America/Argentina/Buenos_Aires'
                 },
                 colorId: HABIT_COLOR_ID,
@@ -222,19 +233,28 @@ export async function updateHabitCalendarEvent(
             }
         } : undefined;
 
-        const eventBody = isAllDay ? {
+        const toLocalISO = (d: Date) => {
+            const pad = (n: number) => n < 10 ? '0' + n : n;
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        };
+
+        const eventBody = isAllDay ? (() => {
+            const nextDay = new Date(startDate);
+            nextDay.setDate(nextDay.getDate() + 1);
+            return {
+                summary,
+                start: { date: dateStr },
+                end: { date: nextDay.toISOString().split('T')[0] },
+                colorId: HABIT_COLOR_ID,
+                description: `📋 Hábito programado\n⏱️ Duración estimada: ${durationMinutes} min`,
+                transparency: 'transparent',
+                recurrence,
+                extendedProperties
+            };
+        })() : {
             summary,
-            start: { date: dateStr },
-            end: { date: dateStr },
-            colorId: HABIT_COLOR_ID,
-            description: `📋 Hábito programado\n⏱️ Duración estimada: ${durationMinutes} min`,
-            transparency: 'transparent',
-            recurrence,
-            extendedProperties
-        } : {
-            summary,
-            start: { dateTime: startDate.toISOString(), timeZone: 'America/Argentina/Buenos_Aires' },
-            end: { dateTime: endDate.toISOString(), timeZone: 'America/Argentina/Buenos_Aires' },
+            start: { dateTime: toLocalISO(startDate), timeZone: 'America/Argentina/Buenos_Aires' },
+            end: { dateTime: toLocalISO(endDate), timeZone: 'America/Argentina/Buenos_Aires' },
             colorId: HABIT_COLOR_ID,
             description: `📋 Hábito programado\n⏱️ Duración: ${durationMinutes} min`,
             recurrence,

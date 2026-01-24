@@ -1,5 +1,6 @@
 /* Anti-flickering base styles */
-html, body {
+html,
+body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -25,11 +26,6 @@ html {
   backface-visibility: hidden;
 }
 
-/* Smooth transitions without jank */
-* {
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
-}
 
 /* Prevent content jump on data load */
 [data-loading="true"] {
@@ -39,4 +35,67 @@ html {
 /* Hardware acceleration for smooth animations */
 .btn-hover-effect {
   transform: translateZ(0);
+}
+
+/* HIGH-PERFORMANCE SIDEBAR NAVIGATION - INSTANT RESPONSE */
+.nav-item-base {
+  position: relative;
+  /* Ultra-fast transitions for instant feedback */
+  transition: background-color 0.05s ease-out, transform 0.05s ease-out, color 0.05s ease-out;
+  z-index: 1;
+  overflow: visible !important;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
+/* Premium Deep Shadow Layer - Instant */
+.nav-item-base::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: transparent;
+  box-shadow: 0 12px 24px -10px rgba(170, 137, 95, 0.45),
+    0 4px 12px -5px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  transition: opacity 0.05s ease-out;
+  z-index: -1;
+  pointer-events: none;
+  will-change: opacity;
+}
+
+/* Active State: Premium Feel */
+.nav-item-active {
+  background-color: #E0D8CC !important;
+  color: #364649 !important;
+  transform: scale(1.02) translateZ(0);
+}
+
+.nav-item-active::before {
+  opacity: 1;
+}
+
+/* Hover State: Fast & Responsive */
+.nav-item-hover:hover:not(.nav-item-active) {
+  background-color: rgba(255, 255, 255, 0.12);
+  color: white;
+  transform: translateX(4px) translateZ(0);
+}
+
+/* Glow on hover */
+.nav-item-hover:hover::before {
+  opacity: 0.7;
+}
+
+/* CALENDAR CARD OPTIMIZATIONS - INSTANT HOVER */
+.calendar-card {
+  transition: transform 0.03s ease-out;
+  will-change: transform, box-shadow;
+}
+
+.calendar-card:hover {
+  transform: scale(1.02) translateY(-2px);
+  /* Use the dynamic glow color if available, fallback to nothing */
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 16px -4px var(--card-glow, rgba(0, 0, 0, 0));
+  z-index: 100 !important;
 }

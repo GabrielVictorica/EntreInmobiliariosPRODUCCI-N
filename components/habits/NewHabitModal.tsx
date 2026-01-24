@@ -12,15 +12,14 @@ import {
 } from 'lucide-react';
 import { Habit, HabitCategory, ScheduleType, PreferredBlock, CognitiveLoad } from '../../types';
 import { supabase } from '../../services/supabaseClient';
+import { useHabitStore } from '../../store/useHabitStore';
 import { createRecurringHabitEvent, updateHabitCalendarEvent } from '../../services/habitCalendarService';
 import TimePicker from '../ui/TimePicker';
 
 interface NewHabitModalProps {
     isOpen: boolean;
     onClose: () => void;
-    categories: HabitCategory[];
     onHabitCreated: () => void;
-    userId?: string;
     habitToEdit?: Habit | null;
     googleAccessToken?: string | null;
 }
@@ -28,12 +27,11 @@ interface NewHabitModalProps {
 export default function NewHabitModal({
     isOpen,
     onClose,
-    categories,
     onHabitCreated,
-    userId,
     habitToEdit,
     googleAccessToken
 }: NewHabitModalProps) {
+    const { categories, targetUserId } = useHabitStore();
     const [loading, setLoading] = useState(false);
 
     // Form State
@@ -79,102 +77,41 @@ export default function NewHabitModal({
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!userId || !name.trim() || !categoryId) return;
+        if (!targetUserId || !name.trim() || !categoryId) return;
 
         setLoading(true);
 
-        const habitData = {
-            user_id: userId,
+        const habitData: Partial<Habit> = {
             name,
-            category_id: categoryId,
+            categoryId: Number(categoryId),
             icon,
-            frequency,
-            schedule_type: scheduleType,
-            preferred_block: preferredBlock,
-            fixed_time: scheduleType === 'fixed' ? fixedTime : null,
-            estimated_duration: estimatedDuration,
-            cognitive_load: cognitiveLoad,
+            frequency: frequency as any,
+            scheduleType,
+            preferredBlock,
+            fixedTime: scheduleType === 'fixed' ? fixedTime : undefined,
+            estimatedDuration,
+            cognitiveLoad,
             active: true
         };
 
-        let result;
+        const { addHabit, updateHabit } = useHabitStore.getState();
+        let savedHabit: Habit | null = null;
 
-        if (habitToEdit) {
-            result = await supabase
-                .from('habits')
-                .update(habitData)
-                .eq('id', habitToEdit.id)
-                .select();
-        } else {
-            result = await supabase
-                .from('habits')
-                .insert(habitData)
-                .select();
+        try {
+            if (habitToEdit) {
+                savedHabit = await updateHabit(habitToEdit.id, habitData, googleAccessToken);
+            } else {
+                savedHabit = await addHabit(habitData, googleAccessToken);
+            }
+        } catch (error) {
+            console.error('Error saving habit:', error);
+            alert('Error al guardar el hábito');
+            setLoading(false);
+            return;
         }
 
-        setLoading(false);
-
-        if (result.error) {
-            console.error('Error saving habit:', result.error);
-            alert('Error al guardar el hábito');
-        } else {
-            // SYNC CON GOOGLE CALENDAR
-            if (googleAccessToken) {
-                const baseHabitData = {
-                    name,
-                    icon,
-                    estimatedDuration,
-                    scheduleType,
-                    preferredBlock,
-                    fixedTime: scheduleType === 'fixed' ? fixedTime : undefined,
-                    frequency
-                };
-
-                try {
-                    let eventIdToSave = null;
-
-                    if (habitToEdit && habitToEdit.googleEventId) {
-                        // UPDATE evento existente
-                        // Include ID
-                        await updateHabitCalendarEvent(habitToEdit.googleEventId, { ...baseHabitData, id: habitToEdit.id }, googleAccessToken);
-                    } else if (!habitToEdit) {
-                        // CREATE nuevo evento
-                        const savedHabit = result.data ? result.data[0] : null;
-
-                        // Include ID if available
-                        const habitDataForCalendar = savedHabit ? { ...baseHabitData, id: savedHabit.id } : baseHabitData;
-
-                        const calResult = await createRecurringHabitEvent(habitDataForCalendar, googleAccessToken);
-
-                        if (calResult.success && calResult.event?.id && savedHabit?.id) {
-                            eventIdToSave = calResult.event.id;
-                            // Actualizar hábito con event ID
-                            await supabase
-                                .from('habits')
-                                .update({ google_event_id: eventIdToSave })
-                                .eq('id', savedHabit.id);
-                        }
-                    } else if (habitToEdit && !habitToEdit.googleEventId) {
-                        // El hábito existe pero no tiene evento -> Crear evento
-                        const calResult = await createRecurringHabitEvent({ ...baseHabitData, id: habitToEdit.id }, googleAccessToken);
-                        if (calResult.success && calResult.event?.id) {
-                            await supabase
-                                .from('habits')
-                                .update({ google_event_id: calResult.event.id })
-                                .eq('id', habitToEdit.id);
-                        }
-                    }
-
-                } catch (calError: any) {
-                    console.error('📅 Calendar sync error:', calError);
-                    alert(`El hábito se guardó pero NO se pudo sincronizar con Google Calendar.\nError: ${calError.message || 'Desconocido'}\n\nPor favor verifica tu conexión en la pestaña Calendario.`);
-                }
-            } else {
-                // Warn if no token but user might expect sync? 
-                // We only warn if active, to avoid noise.
-                // Actually, silent is okay IF we provide the "Missing" warning in Analysis tab.
-            }
-
+        if (savedHabit) {
+            setLoading(false);
             onHabitCreated();
             onClose();
         }

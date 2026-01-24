@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Target, Calculator, AlertCircle, CheckCircle2, TrendingUp, Calendar as CalendarIcon } from 'lucide-react';
+import { Target, Calculator, TrendingUp, Calendar as CalendarIcon } from 'lucide-react';
 import { DebouncedInput } from '../DebouncedInput';
 import { differenceInWeeks, parseISO, isValid, parse, format } from 'date-fns';
+import { calculateWeeks } from '../../utils/dateUtils';
 
 interface CaptationProjectorProps {
     captationRatio: number;
@@ -14,6 +15,7 @@ interface CaptationProjectorProps {
     isManualRatio: boolean;
     onUpdate: (key: string, value: any) => void;
     realCriticalNumber: number;
+    SegmentedToggle: any; // Helper passed from parent
 }
 
 // Helper: ISO (YYYY-MM-DD) -> Display (DD/MM/YYYY)
@@ -38,7 +40,7 @@ const parseFromDisplay = (displayDate: string): string | null => {
     }
 };
 
-export default function CaptationProjector({
+function CaptationProjector({
     captationRatio,
     isSufficientData,
     goalQty,
@@ -47,7 +49,8 @@ export default function CaptationProjector({
     manualCaptationRatio,
     isManualRatio,
     onUpdate,
-    realCriticalNumber
+    realCriticalNumber,
+    SegmentedToggle
 }: CaptationProjectorProps) {
 
     // Local display state for date inputs
@@ -63,26 +66,12 @@ export default function CaptationProjector({
         setEndDisplay(formatToDisplay(captationEndDate));
     }, [captationEndDate]);
 
-    // Helper to calculate weeks
-    const calculateWeeks = (start: string, end: string) => {
-        try {
-            const startDate = parseISO(start);
-            const endDate = parseISO(end);
-            if (!isValid(startDate) || !isValid(endDate)) return 4;
-            const diff = differenceInWeeks(endDate, startDate);
-            return Math.max(diff, 1);
-        } catch (e) {
-            return 4;
-        }
-    };
-
     const weeksDuration = calculateWeeks(captationStartDate, captationEndDate);
 
     // Calculations
     const finalRatio = isManualRatio ? manualCaptationRatio : captationRatio;
     const preListingsNeeded = goalQty * finalRatio;
     const weeklyPreListingsNeeded = preListingsNeeded / weeksDuration;
-    const isGoalDesaligned = weeklyPreListingsNeeded > realCriticalNumber;
 
     const handleInputUpdate = (val: number, name?: string) => {
         if (name) onUpdate(name, val);
@@ -109,110 +98,97 @@ export default function CaptationProjector({
 
     return (
         <div className="bg-white border border-[#364649]/10 rounded-3xl p-6 shadow-xl relative overflow-hidden h-full">
-            <h2 className="text-lg font-bold mb-4 flex items-center text-[#364649]">
-                <Target className="mr-2" size={20} /> Proyector de Captaciones
+            <h2 className="text-sm font-black flex items-center text-[#364649] uppercase tracking-widest mb-6 border-b border-gray-100 pb-4">
+                <Target className="mr-3 text-[#AA895F]" size={18} /> Proyector de Captaciones
             </h2>
 
-            <div className="space-y-5">
+            <div className="space-y-6">
                 {/* 1. Goal Settings (Quantity) */}
                 <div>
-                    <label className="block text-[10px] font-bold uppercase text-[#364649]/50 mb-1">Meta Captaciones</label>
-                    <div className="relative">
+                    <label className="block text-[10px] font-black uppercase text-[#364649]/40 mb-2 tracking-widest">Meta Captaciones</label>
+                    <div className="relative group">
+                        <Calculator size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 transition-colors group-focus-within:text-[#AA895F]" />
                         <DebouncedInput
                             name="captationGoalQty"
                             value={goalQty}
                             onChange={handleInputUpdate}
-                            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-[#364649] font-bold"
-                            placeholder="0"
+                            className="w-full bg-[#364649]/5 border-2 border-transparent focus:bg-white focus:border-[#AA895F] rounded-xl pl-12 pr-4 py-3 text-[#364649] font-black text-xl transition-all shadow-inner"
                         />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#364649]/40">Props</span>
                     </div>
                 </div>
 
-                {/* 2. Date Range (DD/MM/YYYY Format) */}
+                {/* 2. Ratio Configuration */}
                 <div>
-                    <label className="block text-[10px] font-bold uppercase text-[#364649]/50 mb-2 flex items-center gap-1">
-                        <CalendarIcon size={12} /> Periodo de Campaña
+                    <div className="flex justify-between items-center mb-2">
+                        <label className="block text-[10px] font-black uppercase text-[#364649]/40 tracking-widest">Ratio Conversión PL : C</label>
+                        <SegmentedToggle
+                            value={isManualRatio}
+                            onChange={(val: boolean) => onUpdate('isManualCaptationRatio', val)}
+                        />
+                    </div>
+
+                    <div className="relative">
+                        <DebouncedInput
+                            name="manualCaptationRatio"
+                            value={isManualRatio ? manualCaptationRatio : captationRatio}
+                            onChange={handleInputUpdate}
+                            className={`w-full border-2 rounded-xl px-4 py-3 text-xl font-black transition-all ${isManualRatio ? 'bg-white border-[#AA895F] text-[#364649] shadow-sm' : 'bg-gray-100 border-transparent text-gray-500'}`}
+                            disabled={!isManualRatio}
+                        />
+                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-gray-400">: 1</span>
+                    </div>
+
+                    <div className="mt-1">
+                        {!isManualRatio ? (
+                            isSufficientData ? (
+                                <span className="text-[9px] font-black uppercase text-emerald-600">HISTÓRICO REAL</span>
+                            ) : (
+                                <span className="text-[9px] font-black uppercase text-blue-600">ESTÁNDAR 2.5:1 (CARGA DATOS)</span>
+                            )
+                        ) : (
+                            <span className="text-[9px] font-black uppercase text-amber-600">MANUAL</span>
+                        )}
+                    </div>
+                </div>
+
+                {/* 3. Date Range (DD/MM/YYYY Format) */}
+                <div>
+                    <label className="block text-[10px] font-black uppercase text-[#364649]/40 mb-2 tracking-widest flex items-center gap-2">
+                        <CalendarIcon size={12} className="text-[#AA895F]" /> Periodo de Campaña
                     </label>
-                    <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <span className="block text-[9px] text-[#364649]/40 mb-1">Desde</span>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="relative group">
+                            <span className="absolute left-3 -top-2 px-1 bg-white text-[8px] font-black text-[#364649]/30 uppercase tracking-tighter">Desde</span>
                             <input
                                 type="text"
                                 value={startDisplay}
                                 onChange={(e) => setStartDisplay(e.target.value)}
                                 onBlur={handleStartDateBlur}
                                 placeholder="DD/MM/AAAA"
-                                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-[#364649] font-medium focus:outline-none focus:border-[#AA895F]"
+                                className="w-full bg-gray-50 border border-gray-100 rounded-xl px-3 py-3 text-xs text-[#364649] font-black focus:outline-none focus:border-[#AA895F] transition-all"
                             />
                         </div>
-                        <div>
-                            <span className="block text-[9px] text-[#364649]/40 mb-1">Hasta</span>
+                        <div className="relative group">
+                            <span className="absolute left-3 -top-2 px-1 bg-white text-[8px] font-black text-[#364649]/30 uppercase tracking-tighter">Hasta</span>
                             <input
                                 type="text"
                                 value={endDisplay}
                                 onChange={(e) => setEndDisplay(e.target.value)}
                                 onBlur={handleEndDateBlur}
                                 placeholder="DD/MM/AAAA"
-                                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-[#364649] font-medium focus:outline-none focus:border-[#AA895F]"
+                                className="w-full bg-gray-50 border border-gray-100 rounded-xl px-3 py-3 text-xs text-[#364649] font-black focus:outline-none focus:border-[#AA895F] transition-all"
                             />
                         </div>
                     </div>
-                    <div className="text-center mt-2">
-                        <span className="text-[10px] uppercase font-bold text-[#AA895F] bg-[#AA895F]/10 px-2 py-1 rounded-full">
-                            {weeksDuration} {weeksDuration === 1 ? 'Semana' : 'Semanas'}
+                    <div className="mt-3 flex justify-center">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-[#AA895F] bg-[#AA895F]/5 px-3 py-1 rounded-full border border-[#AA895F]/10">
+                            Duración: {weeksDuration} {weeksDuration === 1 ? 'Semana' : 'Semanas'}
                         </span>
                     </div>
                 </div>
-
-                {/* 3. Ratio Configuration */}
-                <div>
-                    <div className="flex justify-between items-center mb-1">
-                        <label className="block text-[10px] font-bold uppercase text-[#364649]/50">Ratio Conversión PL : C</label>
-                        <button
-                            onClick={() => onUpdate('isManualCaptationRatio', !isManualRatio)}
-                            className={`text-[8px] px-1.5 py-0.5 rounded uppercase font-bold tracking-wider transition-colors ${isManualRatio ? 'bg-[#AA895F] text-white' : 'bg-gray-200 text-gray-500 hover:bg-gray-300'}`}
-                        >
-                            {isManualRatio ? 'Manual' : 'Auto'}
-                        </button>
-                    </div>
-
-                    {isManualRatio ? (
-                        <div className="relative">
-                            <DebouncedInput
-                                name="manualCaptationRatio"
-                                value={manualCaptationRatio}
-                                onChange={handleInputUpdate}
-                                className="w-full bg-white border border-[#AA895F] rounded-lg px-3 py-2 text-sm text-[#364649] font-bold"
-                            />
-                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#364649]/40">: 1</span>
-                        </div>
-                    ) : (
-                        <div className="bg-gray-100 rounded-lg px-3 py-2 flex justify-between items-center">
-                            <span className="text-sm font-bold text-[#364649]">{captationRatio.toFixed(1)} : 1</span>
-                            {!isSufficientData && (
-                                <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1">
-                                    <AlertCircle size={10} /> Datos insuficientes
-                                </span>
-                            )}
-                            {isSufficientData && (
-                                <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
-                                    <CheckCircle2 size={10} /> Histórico Real
-                                </span>
-                            )}
-                        </div>
-                    )}
-
-                    {!isSufficientData && !isManualRatio && (
-                        <p className="text-[9px] text-amber-600 mt-1 leading-tight">
-                            Se recomienda usar 'Manual' hasta tener 4 meses de data y 5 captaciones.
-                        </p>
-                    )}
-                </div>
-
-                {/* 4. Results Removed - Managed by Parent */}
-
             </div>
         </div>
     );
 }
+
+export default React.memo(CaptationProjector);

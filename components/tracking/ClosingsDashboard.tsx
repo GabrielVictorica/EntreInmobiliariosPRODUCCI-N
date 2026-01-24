@@ -1,151 +1,180 @@
 import React, { useState, useEffect } from 'react';
-import { ClosingRecord, ActivityRecord, PropertyRecord, ClientRecord, BuyerClientRecord } from '../../types';
+import { ClosingRecord, PropertyRecord, ClientRecord, BuyerClientRecord } from '../../types';
 import { Plus, DollarSign, Award, Percent, TrendingUp, TrendingDown, Calendar, Search, ExternalLink, User, ThumbsUp, AlertTriangle, CheckCircle, Lightbulb, Pencil, Trash2, X } from 'lucide-react';
 import ClosingForm from './ClosingForm';
+import { useBusinessStore } from '../../store/useBusinessStore';
+import { useShallow } from 'zustand/react/shallow';
+import { supabase } from '../../services/supabaseClient';
 
 interface ClosingsDashboardProps {
-    closings: ClosingRecord[];
-    activities: ActivityRecord[]; // All time activities
-    properties: PropertyRecord[];
-    clients: ClientRecord[];
-    buyers: BuyerClientRecord[];
-    onAddClosing: (record: ClosingRecord) => void;
-    onDeleteClosing: (id: string) => void;
-    exchangeRate: number;
-    onUpdateExchangeRate: (rate: number) => void;
-    // Year Props
-    availableYears: number[];
-    currentYear: number;
-    onSelectYear: (year: number) => void;
+    availableYears?: number[];
 }
 
-const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
-    closings, activities, properties, clients, buyers, onAddClosing, onDeleteClosing,
-    exchangeRate, onUpdateExchangeRate,
-    availableYears, currentYear, onSelectYear
+const ClosingRow = React.memo(({
+    closing,
+    onEdit,
+    onDelete,
+    getPropertyName,
+    getBuyerName,
+    exchangeRate,
+    commissionSplit
+}: {
+    closing: ClosingRecord,
+    onEdit: (c: ClosingRecord) => void,
+    onDelete: (id: string) => void,
+    getPropertyName: (c: ClosingRecord) => string,
+    getBuyerName: (c: ClosingRecord) => string,
+    exchangeRate: number,
+    commissionSplit: number
 }) => {
+    const dateStr = closing.date && closing.date.includes(' ') && !closing.date.includes('T') ? closing.date.replace(' ', 'T') : closing.date;
+    const dateObj = new Date(dateStr);
+    const month = !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('es-ES', { month: 'long' }) : 'Mes Desc.';
+    const propName = getPropertyName(closing);
+    const buyerName = getBuyerName(closing);
+
+    return (
+        <tr className="hover:bg-[#AA895F]/5 transition-colors">
+            <td className="px-6 py-3 font-medium text-[#364649] border-r border-[#364649]/5">
+                {closing.manualProperty ? (
+                    <span className="flex items-center text-[#708F96] italic"><ExternalLink size={12} className="mr-1" /> {propName}</span>
+                ) : propName}
+            </td>
+            <td className="px-4 py-3 text-center capitalize text-[#364649]/70 border-r border-[#364649]/5">
+                {month}
+            </td>
+            <td className="px-4 py-3 text-[#364649]/70 border-r border-[#364649]/5">
+                {closing.manualBuyer ? (
+                    <span className="flex items-center italic text-[#708F96]"><User size={12} className="mr-1" /> {buyerName}</span>
+                ) : buyerName}
+            </td>
+            <td className="px-4 py-3 text-right font-medium text-[#364649] border-r border-[#364649]/5">
+                {closing.currency} {closing.salePrice.toLocaleString()}
+            </td>
+            <td className="px-4 py-3 text-center font-bold text-[#364649] border-r border-[#364649]/5">
+                {closing.sides}
+            </td>
+            <td className="px-4 py-3 text-right font-bold text-[#364649] border-r border-[#364649]/5 bg-gray-50/50">
+                {closing.currency} {closing.totalBilling.toLocaleString()}
+            </td>
+            <td className="px-4 py-3 text-right font-black text-[#AA895F] bg-[#AA895F]/5">
+                {closing.currency} {closing.agentHonorarium.toLocaleString()}
+            </td>
+            <td className="px-4 py-3 text-center">
+                <div className="flex items-center justify-center gap-1">
+                    <button
+                        onClick={() => onEdit(closing)}
+                        className="text-[#364649]/40 hover:text-[#AA895F] transition-colors p-2 hover:bg-[#AA895F]/10 rounded-lg"
+                        title="Editar Cierre"
+                    >
+                        <Pencil size={16} />
+                    </button>
+                    <button
+                        onClick={() => onDelete(closing.id)}
+                        className="text-[#364649]/40 hover:text-rose-500 transition-colors p-2 hover:bg-rose-50 rounded-lg"
+                        title="Eliminar Cierre"
+                    >
+                        <Trash2 size={16} />
+                    </button>
+                </div>
+            </td>
+        </tr>
+    );
+});
+
+const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
+    availableYears = [2024, 2025, 2026, 2027, 2028]
+}) => {
+    // Atomic Selectors
+    const {
+        currentYear, onSelectYear, exchangeRate, commissionSplit, updateSettings,
+        getMetricsByYear, addClosing, deleteClosing, properties, buyers
+    } = useBusinessStore(useShallow(state => ({
+        currentYear: state.selectedYear,
+        onSelectYear: state.setSelectedYear,
+        exchangeRate: state.exchangeRate,
+        commissionSplit: state.commissionSplit,
+        updateSettings: state.updateSettings,
+        getMetricsByYear: state.getMetricsByYear,
+        addClosing: state.addClosing,
+        deleteClosing: state.deleteClosing,
+        properties: state.properties,
+        buyers: state.buyers
+    })));
+
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [editingClosing, setEditingClosing] = useState<ClosingRecord | null>(null);
-    const [commissionSplit, setCommissionSplit] = useState(45);
-    const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null); // For delete confirmation modal
+    const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-    // Local state for editing rate (debounced)
+    // Memoize metrics calculation to avoid heavy work on every small state update
+    const metrics = React.useMemo(() => getMetricsByYear(currentYear), [getMetricsByYear, currentYear]);
+
+    const {
+        totalBillingUSD: totalBilling,
+        totalIncomeUSD: totalIncome,
+        totalSides: totalEnds,
+        ratioPLPB,
+        filteredClosings
+    } = metrics;
+
+    const ratioNum = Number(ratioPLPB.toFixed(1));
+
+    // Local state for editing rate
     const [localRate, setLocalRate] = useState(exchangeRate.toString());
 
     useEffect(() => {
         setLocalRate(exchangeRate.toString());
     }, [exchangeRate]);
 
-    const handleRateBlur = () => {
+    const handleRateBlur = React.useCallback(() => {
         const val = parseFloat(localRate);
-        if (!isNaN(val) && val > 0) {
-            onUpdateExchangeRate(val);
+        if (!isNaN(val) && val > 0 && val !== exchangeRate) {
+            updateSettings(val, commissionSplit);
         } else {
             setLocalRate(exchangeRate.toString());
         }
-    };
+    }, [localRate, exchangeRate, commissionSplit, updateSettings]);
 
-
-    useEffect(() => {
-        const saved = localStorage.getItem('objectives_settings');
-        if (saved) {
-            const parsed = JSON.parse(saved);
-            if (parsed.commissionSplit) setCommissionSplit(parsed.commissionSplit);
-        }
-    }, []);
-
-    // --- HELPER: NORMALIZE CURRENCY ---
-    const normalizeToUSD = (amount: number, currency: string) => {
-        if (currency === 'USD') return amount;
-        if (currency === 'ARS') return amount / exchangeRate;
-        return amount;
-    };
-
-    // --- FILTER BY YEAR ---
-    const filteredClosings = closings.filter(c => {
-        if (!c.date) return false;
-        // Robust parsing: Handle SQL strings with spaces instead of T, and potentially timezone data
-        let dateStr = c.date;
-        if (dateStr.includes(' ') && !dateStr.includes('T')) {
-            dateStr = dateStr.replace(' ', 'T');
-        }
-
-        // Force treat as local date to compare year correctly
-        const d = new Date(dateStr);
-        // Correctly handle UTC dates if needed depending on how they are stored vs local selection
-        // But for year comparison, getFullYear() usually suffices if timezone diff doesn't shift year.
-
-        return !isNaN(d.getTime()) && d.getFullYear() === currentYear;
-    });
-
-    const filteredPLPB = activities.filter(a => {
-        if (!a.date) return false;
-        const dateStr = a.date.includes(' ') && !a.date.includes('T') ? a.date.replace(' ', 'T') : a.date;
-        const d = new Date(dateStr);
-        return (a.type === 'pre_listing' || a.type === 'pre_buying') && !isNaN(d.getTime()) && d.getFullYear() === currentYear;
-    });
-
-    // --- METRICS CALCULATION (YEARLY) ---
-    const totalPLPB = filteredPLPB.length;
-    const totalClosings = filteredClosings.length;
-
-    // Ratio Logic (Yearly)
-    const ratioVal = totalClosings > 0 ? (totalPLPB / totalClosings) : totalPLPB;
-    const ratio = ratioVal.toFixed(1);
-    const ratioNum = Number(ratio);
-
-    const effectiveness = totalPLPB > 0 ? ((totalClosings / totalPLPB) * 100).toFixed(1) : '0.0';
-
-    // Totals (Yearly - Normalized to USD)
-    const totalBilling = filteredClosings.reduce((acc, c) => acc + normalizeToUSD(c.totalBilling, c.currency), 0);
-    const totalIncome = filteredClosings.reduce((acc, c) => acc + normalizeToUSD(c.agentHonorarium, c.currency), 0);
-    const totalEnds = filteredClosings.reduce((acc, c) => acc + c.sides, 0);
-
-    // Avg Ticket (Weighted by Sales Price, normalized) - Yearly
-    const avgTicket = totalClosings > 0
-        ? filteredClosings.reduce((acc, c) => acc + normalizeToUSD(c.salePrice, c.currency), 0) / totalClosings
-        : 0;
-
-    const handleSave = (record: ClosingRecord) => {
-        onAddClosing(record);
+    const handleSave = React.useCallback((record: ClosingRecord) => {
+        addClosing(record);
         setIsFormOpen(false);
         setEditingClosing(null);
-    };
+    }, [addClosing]);
 
-    const handleEdit = (record: ClosingRecord) => {
+    const handleEdit = React.useCallback((record: ClosingRecord) => {
         setEditingClosing(record);
         setIsFormOpen(true);
-    };
+    }, []);
 
-    const handleNew = () => {
+    const handleNew = React.useCallback(() => {
         setEditingClosing(null);
         setIsFormOpen(true);
-    };
+    }, []);
 
-    const getPropertyName = (closing: ClosingRecord) => {
+    const getPropertyName = React.useCallback((closing: ClosingRecord) => {
         if (closing.propertyId) {
             const prop = properties.find(p => p.id === closing.propertyId);
             return prop ? `${prop.address.street} ${prop.address.number}` : 'Propiedad eliminada';
         }
         return closing.manualProperty || 'No especificada';
-    };
+    }, [properties]);
 
-    const getBuyerName = (closing: ClosingRecord) => {
+    const getBuyerName = React.useCallback((closing: ClosingRecord) => {
         if (closing.buyerClientId) {
             const b = buyers.find(c => c.id === closing.buyerClientId);
             return b ? b.name : 'Desconocido';
         }
         return closing.manualBuyer || 'Externo';
-    };
+    }, [buyers]);
 
-    // LOGIC: Analysis Text based on Ratio
-    const getAnalysis = (r: number) => {
+    // Centralized Analysis logic can stay here as it's UI/UX related
+    const getAnalysis = React.useCallback((r: number) => {
         if (r === 0) return { title: "Sin Datos Suficientes", text: "Registra más actividad para generar un diagnóstico.", color: "bg-gray-100 border-gray-200 text-gray-600" };
         if (r <= 4) return { title: "Riesgo de Stock (Ratio < 4)", text: "Tu efectividad es altísima, pero cuidado: Estás vendiendo todo lo que captas demasiado rápido. CORRES RIESGO DE QUEDARTE SIN INVENTARIO. Prioriza la prospección (PL) urgente.", color: "bg-blue-50 border-blue-200 text-blue-800" };
         if (r <= 6.5) return { title: "Negocio Saludable (Zona 6-1)", text: "Estás en el punto dulce del mercado. Tu equilibrio entre captación y cierre es óptimo. Mantén este ritmo de generación de contactos.", color: "bg-emerald-50 border-emerald-200 text-emerald-800" };
         if (r <= 10) return { title: "Alerta de Eficiencia (Ratio 7-10)", text: "Estás trabajando de más por cada venta. REVISA: 1) ¿Estás calificando bien en la primera llamada? 2) ¿El precio de tus captaciones es correcto?", color: "bg-amber-50 border-amber-200 text-amber-800" };
         return { title: "Cuello de Botella (Ratio > 10)", text: "Cuidado. Necesitas demasiadas gestiones para cerrar una venta. Es probable que estés trabajando con compradores no calificados o propiedades fuera de precio. Detente y analiza tu cartera.", color: "bg-rose-50 border-rose-200 text-rose-800" };
-    };
+    }, []);
 
     const analysis = getAnalysis(ratioNum);
 
@@ -193,6 +222,31 @@ const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
                 </button>
             </div>
 
+            {/* ERROR ALERT BANNER */}
+            {useBusinessStore.getState().error && (
+                <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-4 rounded-r-lg shadow-sm flex items-center justify-between">
+                    <div className="flex items-center">
+                        <AlertTriangle className="text-red-500 mr-3" size={24} />
+                        <div>
+                            <h4 className="text-red-800 font-bold">Error de Conexión</h4>
+                            <p className="text-red-700 text-sm">{useBusinessStore.getState().error}</p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={() => useBusinessStore.getState().fetchBusinessData(
+                            useBusinessStore.getState().targetUserId,
+                            false, // Re-fetching preserves current global/local state internally if we don't pass explicit overrides, but let's be safe
+                            undefined,
+                            true // Force
+                        )}
+                        className="bg-red-100 hover:bg-red-200 text-red-800 px-4 py-2 rounded-lg font-bold text-sm transition-colors"
+                    >
+                        Reintentar
+                    </button>
+                </div>
+            )}
+
+
 
             {/* 3. CLOSINGS TABLE */}
             <div className="bg-white rounded-3xl border border-[#364649]/10 overflow-hidden shadow-xl" style={{ animationDelay: '0.2s' }}>
@@ -228,66 +282,23 @@ const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
                         <tbody className="divide-y divide-[#364649]/5">
                             {filteredClosings.length === 0 ? (
                                 <tr>
-                                    <td colSpan={7} className="px-6 py-10 text-center text-[#364649]/40 italic">
+                                    <td colSpan={8} className="px-6 py-10 text-center text-[#364649]/40 italic">
                                         No hay cierres registrados en {currentYear}.
                                     </td>
                                 </tr>
                             ) : (
-                                filteredClosings.map((c) => {
-                                    const dateStr = c.date && c.date.includes(' ') && !c.date.includes('T') ? c.date.replace(' ', 'T') : c.date;
-                                    const dateObj = new Date(dateStr);
-                                    const month = !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('es-ES', { month: 'long' }) : 'Mes Desc.';
-                                    const propName = getPropertyName(c);
-                                    const buyerName = getBuyerName(c);
-
-                                    return (
-                                        <tr key={c.id} className="hover:bg-[#AA895F]/5 transition-colors">
-                                            <td className="px-6 py-3 font-medium text-[#364649] border-r border-[#364649]/5">
-                                                {c.manualProperty ? (
-                                                    <span className="flex items-center text-[#708F96] italic"><ExternalLink size={12} className="mr-1" /> {propName}</span>
-                                                ) : propName}
-                                            </td>
-                                            <td className="px-4 py-3 text-center capitalize text-[#364649]/70 border-r border-[#364649]/5">
-                                                {month}
-                                            </td>
-                                            <td className="px-4 py-3 text-[#364649]/70 border-r border-[#364649]/5">
-                                                {c.manualBuyer ? (
-                                                    <span className="flex items-center italic text-[#708F96]"><User size={12} className="mr-1" /> {buyerName}</span>
-                                                ) : buyerName}
-                                            </td>
-                                            <td className="px-4 py-3 text-right font-medium text-[#364649] border-r border-[#364649]/5">
-                                                {c.currency} {c.salePrice.toLocaleString()}
-                                            </td>
-                                            <td className="px-4 py-3 text-center font-bold text-[#364649] border-r border-[#364649]/5">
-                                                {c.sides}
-                                            </td>
-                                            <td className="px-4 py-3 text-right font-bold text-[#364649] border-r border-[#364649]/5 bg-gray-50/50">
-                                                {c.currency} {c.totalBilling.toLocaleString()}
-                                            </td>
-                                            <td className="px-4 py-3 text-right font-black text-[#AA895F] bg-[#AA895F]/5">
-                                                {c.currency} {c.agentHonorarium.toLocaleString()}
-                                            </td>
-                                            <td className="px-4 py-3 text-center border-t border-[#364649]/5">
-                                                <div className="flex items-center justify-center gap-1">
-                                                    <button
-                                                        onClick={() => handleEdit(c)}
-                                                        className="text-[#364649]/40 hover:text-[#AA895F] transition-colors p-2 hover:bg-[#AA895F]/10 rounded-lg"
-                                                        title="Editar Cierre"
-                                                    >
-                                                        <Pencil size={16} />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setDeleteConfirmId(c.id)}
-                                                        className="text-[#364649]/40 hover:text-rose-500 transition-colors p-2 hover:bg-rose-50 rounded-lg"
-                                                        title="Eliminar Cierre"
-                                                    >
-                                                        <Trash2 size={16} />
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    );
-                                })
+                                filteredClosings.map((c) => (
+                                    <ClosingRow
+                                        key={c.id}
+                                        closing={c}
+                                        onEdit={handleEdit}
+                                        onDelete={setDeleteConfirmId}
+                                        getPropertyName={getPropertyName}
+                                        getBuyerName={getBuyerName}
+                                        exchangeRate={exchangeRate}
+                                        commissionSplit={commissionSplit}
+                                    />
+                                ))
                             )}
                         </tbody>
                         {filteredClosings.length > 0 && (
@@ -318,7 +329,7 @@ const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
                     commissionSplit={commissionSplit}
                     onSave={handleSave}
                     onCancel={() => { setIsFormOpen(false); setEditingClosing(null); }}
-                    onDelete={onDeleteClosing}
+                    onDelete={deleteClosing}
                     initialData={editingClosing}
                     exchangeRate={exchangeRate}
                 />
@@ -358,7 +369,7 @@ const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
                             <button
                                 onClick={() => {
                                     if (deleteConfirmId) {
-                                        onDeleteClosing(deleteConfirmId);
+                                        deleteClosing(deleteConfirmId);
                                         setDeleteConfirmId(null);
                                     }
                                 }}
@@ -375,4 +386,4 @@ const ClosingsDashboard: React.FC<ClosingsDashboardProps> = ({
     );
 };
 
-export default ClosingsDashboard;
+export default React.memo(ClosingsDashboard);

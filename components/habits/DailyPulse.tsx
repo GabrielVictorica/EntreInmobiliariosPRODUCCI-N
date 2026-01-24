@@ -15,20 +15,34 @@ import {
 } from 'lucide-react';
 import { supabase } from '../../services/supabaseClient';
 import { DailyLog } from '../../types';
+import { useHabitStore } from '../../store/useHabitStore';
 
 interface DailyPulseProps {
-    dailyLog: DailyLog;
-    onUpdate: () => void;
     onClose?: () => void;
 }
 
-export default function DailyPulse({ dailyLog, onUpdate, onClose }: DailyPulseProps) {
-    const [mood, setMood] = useState<number>(dailyLog.moodScore || 3);
-    const [energy, setEnergy] = useState<number>(dailyLog.energyScore || 5);
-    const [notes, setNotes] = useState<string>(dailyLog.notes || '');
-    const [tags, setTags] = useState<string[]>(dailyLog.tags || []);
+export default function DailyPulse({ onClose }: DailyPulseProps) {
+    const dailyLog = useHabitStore(s => s.dailyLog);
+    const upsertDailyLog = useHabitStore(s => s.upsertDailyLog);
+    const setSelectedDate = useHabitStore(s => s.setSelectedDate);
+    const selectedDate = useHabitStore(s => s.selectedDate);
+
+    const [mood, setMood] = useState<number>(dailyLog?.moodScore || 3);
+    const [energy, setEnergy] = useState<number>(dailyLog?.energyScore || 5);
+    const [notes, setNotes] = useState<string>(dailyLog?.notes || '');
+    const [tags, setTags] = useState<string[]>(dailyLog?.tags || []);
     const [newTag, setNewTag] = useState('');
     const [loading, setLoading] = useState(false);
+
+    // Update local state if dailyLog changes (e.g. from null to created)
+    useEffect(() => {
+        if (dailyLog) {
+            setMood(dailyLog.moodScore || 3);
+            setEnergy(dailyLog.energyScore || 5);
+            setNotes(dailyLog.notes || '');
+            setTags(dailyLog.tags || []);
+        }
+    }, [dailyLog]);
 
     const moods = [
         { value: 1, icon: <Frown size={32} />, label: 'Mal', color: 'text-red-500' },
@@ -40,22 +54,18 @@ export default function DailyPulse({ dailyLog, onUpdate, onClose }: DailyPulsePr
 
     const handleSave = async () => {
         setLoading(true);
-        const { error } = await supabase
-            .from('daily_logs')
-            .update({
-                mood_score: mood,
-                energy_score: energy,
-                notes: notes,
-                tags: tags
-            })
-            .eq('id', dailyLog.id);
+        const result = await upsertDailyLog({
+            moodScore: mood,
+            energyScore: energy,
+            notes: notes,
+            tags: tags
+        });
 
         setLoading(false);
-        if (!error) {
-            onUpdate();
+        if (result) {
+            // Trigger a refresh of all habit data for the day
+            setSelectedDate(selectedDate);
             if (onClose) onClose();
-        } else {
-            console.error('Error updating pulse:', error);
         }
     };
 

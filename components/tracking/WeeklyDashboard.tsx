@@ -1,12 +1,14 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import {
     ChevronLeft, ChevronRight, Plus, Users, Activity, UserPlus, Search, Link, X, ArrowRight, CheckCircle, Calendar, Trash2, HelpCircle, UserCheck, ArrowRightLeft
 } from 'lucide-react';
 import { ActivityRecord, ActivityType, ClientRecord, BuyerClientRecord, VisitRecord, PropertyRecord, BuyerSearchRecord, ClosingRecord } from '../../types';
+import { useBusinessStore } from '../../store/useBusinessStore';
+import { useShallow } from 'zustand/react/shallow';
+import { DEFAULT_GOALS } from '../../store/slices/types';
 
-// Import Forms for Deep Integration - Adjusted Paths
+// Forms
 import ClientForm from '../sellers/SellerForm';
 import PropertyForm from '../sellers/PropertyForm';
 import BuyerClientForm from '../buyers/BuyerClientForm';
@@ -15,79 +17,83 @@ import VisitForm from '../buyers/VisitForm';
 import ClosingForm from './ClosingForm';
 
 interface WeeklyDashboardProps {
-    activities: ActivityRecord[];
-    clients: ClientRecord[];
-    buyers: BuyerClientRecord[];
-    visits: VisitRecord[];
-    properties: PropertyRecord[];
-    searches?: BuyerSearchRecord[];
-    closingLogs?: ClosingRecord[]; // Para contar puntas correctamente
-    onSaveActivity: (act: ActivityRecord) => void;
-    onDeleteActivity: (id: string) => void; // New Prop for Deletion
-    // Deep Integration Handlers
-    onSaveClient: (client: ClientRecord) => void;
-    onSaveProperty: (prop: PropertyRecord) => void;
-    onSaveBuyer: (buyer: BuyerClientRecord) => void;
-    onSaveSearch: (search: BuyerSearchRecord) => void;
-    onSaveVisit: (visit: VisitRecord) => void;
-    onSaveClosing: (closing: ClosingRecord) => void;
-    onDeleteClosing: (id: string) => void;
-    onNavigateTo: (view: string, params?: any) => void;
-    initialAction?: 'register-activity';
+    onNavigateTo: (view: any, params?: any) => void;
+    initialAction?: string | null;
+    targetUserId?: string;
 }
 
-const WEEK_DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
-const ACTIVITY_ROWS: { id: ActivityType, label: string, isGreen: boolean }[] = [
-    { id: 'act_verde', label: 'Act. Verde (Varios)', isGreen: false },
-    { id: 'pre_listing', label: 'Pre-Listing (PL)', isGreen: true },
-    { id: 'pre_buying', label: 'Pre-Buying (PB)', isGreen: false },
-    { id: 'acm', label: 'ACM Entregado', isGreen: false },
-    { id: 'captacion', label: 'Captaciones', isGreen: false },
-    { id: 'visita', label: 'Visitas', isGreen: false },
-    { id: 'reserva', label: 'Reservas', isGreen: false },
-    { id: 'cierre', label: 'Puntas Cierre', isGreen: false },
-    { id: 'referido', label: 'Referidos', isGreen: false },
+const WEEK_DAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+const ACTIVITY_ROWS: { id: ActivityType; label: string; isGreen?: boolean }[] = [
+    { id: 'act_verde', label: 'Reunión Verde', isGreen: false },
+    { id: 'pre_listing', label: 'Pre-Listing', isGreen: true },
+    { id: 'pre_buying', label: 'Pre-Buying', isGreen: false },
+    { id: 'acm', label: 'ACM (Valuación)', isGreen: false },
+    { id: 'captacion', label: 'Inmueble Captado', isGreen: false },
+    { id: 'visita', label: 'Visita Realizada', isGreen: false },
+    { id: 'reserva', label: 'Reserva Tomada', isGreen: false },
+    { id: 'cierre', label: 'Operación Cerrada', isGreen: false },
+    { id: 'referido', label: 'Referido Generado', isGreen: false }
 ];
 
-type ModalMode = 'list' | 'wizard';
-type WizardStep = 'select-contact' | 'create-contact' | 'create-record' | 'finalize' | 'qualify-pb';
-
 const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
-    activities, clients, buyers, visits, properties, searches, closingLogs,
-    onSaveActivity, onDeleteActivity, onSaveClient, onSaveProperty, onSaveBuyer, onSaveSearch, onSaveVisit,
-    onSaveClosing, onDeleteClosing, onNavigateTo,
-    initialAction
+    onNavigateTo,
+    initialAction,
+    targetUserId
 }) => {
+    const {
+        activities, closings, clients, buyers, visits, properties, searches,
+        getUnifiedActivities, addActivity, deleteActivity, addClosing, deleteClosing: storeDeleteClosing,
+        addClient, addProperty, addBuyer, addVisit, addSearch,
+        getPlanAnalysis,
+        goalsByYear,
+        effectiveYear
+    } = useBusinessStore(useShallow(state => ({
+        activities: state.activities,
+        closings: state.closings,
+        clients: state.clients,
+        buyers: state.buyers,
+        visits: state.visits,
+        properties: state.properties,
+        searches: state.searches,
+        getUnifiedActivities: state.getUnifiedActivities,
+        addActivity: state.addActivity,
+        deleteActivity: state.deleteActivity,
+        addClosing: state.addClosing,
+        deleteClosing: state.deleteClosing,
+        addClient: state.addClient,
+        addProperty: state.addProperty,
+        addBuyer: state.addBuyer,
+        addVisit: state.addVisit,
+        addSearch: state.addSearch,
+        getPlanAnalysis: state.getPlanAnalysis,
+        goalsByYear: state.goalsByYear,
+        effectiveYear: state.selectedYear
+    })));
+
+    const financialGoals = goalsByYear[effectiveYear] || DEFAULT_GOALS;
+
     const [currentDate, setCurrentDate] = useState(new Date());
-    const [criticalNumber, setCriticalNumber] = useState(0);
-
-    // Modal & Wizard State
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [modalMode, setModalMode] = useState<ModalMode>('wizard');
-    const [selectedDayIndex, setSelectedDayIndex] = useState(0);
+    const [modalMode, setModalMode] = useState<'list' | 'wizard'>('list');
     const [selectedType, setSelectedType] = useState<ActivityType>('act_verde');
-
-    const [wizardStep, setWizardStep] = useState<WizardStep>('select-contact');
-    const [tempClientId, setTempClientId] = useState<string | null>(null); // Stores ID of selected/created client
-
-    // Simple Form State (for non-complex activities)
+    const [selectedDayIndex, setSelectedDayIndex] = useState(0);
     const [contactSearch, setContactSearch] = useState('');
-    const [selectedContact, setSelectedContact] = useState<{ id?: string, name: string, type: string } | null>(null);
+    const [selectedContact, setSelectedContact] = useState<any>(null);
     const [notes, setNotes] = useState('');
-
-    // Delete Confirmation State
-    const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-    const [activityToDelete, setActivityToDelete] = useState<string | null>(null);
-
-    // Closing Form State
+    const [tempClientId, setTempClientId] = useState<string | null>(null);
+    const [wizardStep, setWizardStep] = useState<'select-contact' | 'create-contact' | 'create-record' | 'finalize' | 'qualify-pb'>('select-contact');
     const [isClosingFormOpen, setIsClosingFormOpen] = useState(false);
     const [selectedClosingId, setSelectedClosingId] = useState<string | null>(null);
+    const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+    const [activityToDelete, setActivityToDelete] = useState<ActivityRecord | null>(null);
 
-    // Load Critical Number
-    useEffect(() => {
-        const saved = localStorage.getItem('critical_number');
-        if (saved) setCriticalNumber(Number(saved));
-    }, []);
+    // Calculate Critical Number dynamically
+    const criticalNumber = useMemo(() => {
+        const analysis = getPlanAnalysis(effectiveYear, financialGoals);
+        return analysis?.realCriticalNumber || 0;
+    }, [getPlanAnalysis, effectiveYear, financialGoals]);
+
 
     // Handle Initial Action (Deep Linking)
     useEffect(() => {
@@ -132,44 +138,11 @@ const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
         const startStr = formatDateKey(weekDates[0]);
         const endStr = formatDateKey(weekDates[6]);
 
-        // 1. Manual Activities
-        const manual = activities.filter(a => a.date >= startStr && a.date <= endStr);
+        // Use centralized store logic for unified stream (now reads from store internally)
+        const unified = getUnifiedActivities();
 
-        // 2. System Visits (SOLO REALIZADAS)
-        const systemVisits = visits
-            .filter(v => v.status === 'realizada' && v.date >= startStr && v.date <= endStr)
-            .map(v => ({
-                id: v.id,
-                date: v.date,
-                type: 'visita' as ActivityType,
-                contactId: v.buyerClientId,
-                contactName: buyers.find(b => b.id === v.buyerClientId)?.name || 'Comprador',
-                notes: `Visita propiedad: ${v.propertyId}. ${v.feedback?.positivePoints || ''}`,
-                systemGenerated: true,
-                referenceId: v.id,
-                createdAt: v.createdAt
-            }));
-
-        // 3. System Captures (Properties Created)
-        const systemCaptures = properties
-            .filter(p => {
-                const created = p.createdAt.split('T')[0];
-                return created >= startStr && created <= endStr;
-            })
-            .map(p => ({
-                id: `sys-cap-${p.id}`,
-                date: p.createdAt.split('T')[0],
-                type: 'captacion' as ActivityType,
-                contactId: p.clientId,
-                contactName: clients.find(c => c.id === p.clientId)?.owners[0].name || 'Propietario',
-                notes: `Nueva propiedad: ${p.address.street} ${p.address.number}`,
-                systemGenerated: true,
-                referenceId: p.id,
-                createdAt: p.createdAt
-            }));
-
-        return [...manual, ...systemVisits, ...systemCaptures];
-    }, [activities, visits, properties, weekDates, clients, buyers]);
+        return unified.filter(a => a.date >= startStr && a.date <= endStr);
+    }, [getUnifiedActivities, properties, visits, clients, buyers, weekDates, activities, closings]);
 
     // Calculations
     const getCellData = (rowIndex: number, colIndex: number) => {
@@ -182,31 +155,29 @@ const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
     // NEW: Get closing logs for a specific day
     const getClosingsForDay = (colIndex: number) => {
         const dateKey = formatDateKey(weekDates[colIndex]);
-        if (!closingLogs) return [];
-        // Comparar solo la parte de fecha (manejar tanto 'YYYY-MM-DD' como 'YYYY-MM-DDTHH:mm:ss')
-        return closingLogs.filter(c => c.date.split('T')[0] === dateKey);
+        // Comparar solo la parte de fecha
+        return closings.filter(c => c.date.split('T')[0] === dateKey);
     };
 
     // NEW: Get total sides (puntas) for a specific day
     const getClosingSidesForDay = (colIndex: number) => {
-        return getClosingsForDay(colIndex).reduce((sum, c) => sum + c.sides, 0);
+        return getClosingsForDay(colIndex).reduce((sum, c) => sum + (c.sides || 0), 0);
     };
 
     // NEW: Get weekly total of sides (puntas)
     const getWeeklyClosingSides = () => {
         const startStr = formatDateKey(weekDates[0]);
         const endStr = formatDateKey(weekDates[6]);
-        if (!closingLogs) return 0;
-        return closingLogs
+        return closings
             .filter(c => {
                 const closingDate = c.date.split('T')[0];
                 return closingDate >= startStr && closingDate <= endStr;
             })
-            .reduce((sum, c) => sum + c.sides, 0);
+            .reduce((sum, c) => sum + (c.sides || 0), 0);
     };
 
     const getWeeklyTotal = (type: ActivityType) => {
-        // Cierres simplificados: contar registros de actividad
+        if (type === 'cierre') return getWeeklyClosingSides();
         return currentWeekActivities.filter(a => a.type === type).length;
     };
 
@@ -272,8 +243,8 @@ const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
         setWizardStep('create-contact');
     };
 
-    const handleSaveNewClient = (client: ClientRecord) => {
-        onSaveClient(client);
+    const handleSaveNewClient = async (client: ClientRecord) => {
+        await addClient(client);
         setTempClientId(client.id);
         setContactSearch(client.owners[0].name);
 
@@ -284,27 +255,27 @@ const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
         }
     };
 
-    const handleSaveNewBuyer = (buyer: BuyerClientRecord) => {
-        onSaveBuyer(buyer);
+    const handleSaveNewBuyer = async (buyer: BuyerClientRecord) => {
+        await addBuyer(buyer);
         setTempClientId(buyer.id);
         setContactSearch(buyer.name);
         setWizardStep('create-record');
     };
 
     // 2. Record Creation Handlers (Property / Search / Visit)
-    const handleSaveNewProperty = (prop: PropertyRecord) => {
-        onSaveProperty(prop);
+    const handleSaveNewProperty = async (prop: PropertyRecord) => {
+        await addProperty(prop);
         setWizardStep('finalize');
     };
 
-    const handleSaveNewSearch = (search: BuyerSearchRecord) => {
-        onSaveSearch(search);
+    const handleSaveNewSearch = async (search: BuyerSearchRecord) => {
+        await addSearch(search);
         // Auto-create activity
         finalizeActivity(search.buyerClientId, 'Nuevo Perfil NURC creado.', search.id);
     };
 
-    const handleSaveNewVisit = (visit: VisitRecord) => {
-        onSaveVisit(visit);
+    const handleSaveNewVisit = async (visit: VisitRecord) => {
+        await addVisit(visit);
         setWizardStep('finalize');
     };
 
@@ -320,7 +291,7 @@ const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
             referenceId: refId,
             createdAt: new Date().toISOString()
         };
-        onSaveActivity(newActivity);
+        addActivity(newActivity);
 
         // For Pre-Buying, we might want to qualify immediately after simple save
         if (selectedType === 'pre_buying' && keepOpen) {
@@ -430,7 +401,7 @@ const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
                                             className="p-4 text-center cursor-pointer hover:bg-[#AA895F]/5 transition-all group/cell relative border-r border-gray-100/50"
                                         >
                                             {count > 0 ? (
-                                                <div className={`w-9 h-9 mx-auto flex items-center justify-center rounded-xl font-bold text-sm shadow-sm transition-all group-hover/cell:scale-110 ${row.id === 'cierre' ? 'bg-[#AA895F] text-white' : (row.isGreen ? 'bg-emerald-500 text-white' : 'bg-[#364649] text-white')}`}>
+                                                <div className={`w-9 h-9 mx-auto flex items-center justify-center rounded-xl font-bold text-sm shadow-sm transition-all group-hover/cell:scale-110 ${row.isGreen ? 'bg-emerald-500 text-white' : 'bg-[#364649] text-white'}`}>
                                                     {count}
                                                 </div>
                                             ) : (
@@ -474,7 +445,7 @@ const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
                             <button
                                 onClick={() => {
                                     if (activityToDelete) {
-                                        onDeleteActivity(activityToDelete);
+                                        deleteActivity(activityToDelete);
                                         if (activeCellData.length <= 1) setIsModalOpen(false);
                                     }
                                     setDeleteConfirmOpen(false);
@@ -564,7 +535,7 @@ const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
                                                                 <button
                                                                     onClick={() => {
                                                                         if (confirm('¿Estás seguro de que deseás eliminar este cierre?')) {
-                                                                            onDeleteClosing(closing.id);
+                                                                            storeDeleteClosing(closing.id);
                                                                         }
                                                                     }}
                                                                     className="p-1 hover:bg-red-50 text-red-400 rounded-md transition-colors"
@@ -841,15 +812,15 @@ const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
                 <ClosingForm
                     properties={properties}
                     buyers={buyers}
-                    onSave={onSaveClosing}
+                    onSave={addClosing}
                     onCancel={() => {
                         setIsClosingFormOpen(false);
                         setSelectedClosingId(null);
                     }}
-                    onDelete={onDeleteClosing}
-                    commissionSplit={45}
-                    initialData={selectedClosingId ? closingLogs?.find(c => c.id === selectedClosingId) : null}
-                    exchangeRate={1000}
+                    onDelete={storeDeleteClosing}
+                    commissionSplit={useBusinessStore.getState().commissionSplit}
+                    initialData={selectedClosingId ? closings?.find(c => c.id === selectedClosingId) : null}
+                    exchangeRate={useBusinessStore.getState().exchangeRate}
                     onNavigateTo={onNavigateTo}
                 />
             )}
@@ -858,7 +829,8 @@ const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
 };
 
 const ProgressBar = ({ label, current, target, color, icon, subtext }: any) => {
-    const percent = Math.min((current / target) * 100, 100);
+    const percent = target > 0 ? (current / target) * 100 : 0;
+    const progressWidth = Math.min(percent, 100);
     return (
         <div className="bg-white border border-[#364649]/5 rounded-2xl p-4 shadow-sm flex items-center gap-4">
             <div className="p-3 rounded-xl bg-gray-50 border border-gray-100">{icon}</div>
@@ -868,14 +840,14 @@ const ProgressBar = ({ label, current, target, color, icon, subtext }: any) => {
                         <p className="text-xs font-bold text-[#364649] uppercase tracking-wider">{label}</p>
                         {subtext && <p className="text-[10px] text-[#364649]/40">{subtext}</p>}
                     </div>
-                    <p className="text-lg font-bold text-[#364649]">{current} <span className="text-sm text-[#364649]/40">/ {target}</span></p>
+                    <p className="text-lg font-bold text-[#364649]">{current} <span className="text-sm text-[#364649]/40">/ {target}</span> <span className="text-xs font-black text-[#AA895F] ml-2">{percent.toFixed(0)}%</span></p>
                 </div>
                 <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div className={`h-full ${color} transition-all duration-500`} style={{ width: `${percent}%` }}></div>
+                    <div className={`h-full ${color} transition-all duration-500`} style={{ width: `${progressWidth}%` }}></div>
                 </div>
             </div>
         </div>
     );
 };
 
-export default WeeklyDashboard;
+export default React.memo(WeeklyDashboard);

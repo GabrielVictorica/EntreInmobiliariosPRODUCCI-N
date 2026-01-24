@@ -1,23 +1,31 @@
 
 import React, { useState } from 'react';
 import ReactDOM from 'react-dom';
-import { PropertyRecord, MarketingLog, MarketingMetrics } from '../../types';
+import { useBusinessStore } from '../../store/useBusinessStore';
+import { useShallow } from 'zustand/react/shallow';
+import { MarketingLog, MarketingMetrics } from '../../types';
 import { X, Save, TrendingUp, BarChart3, Megaphone, Facebook, Instagram, MousePointer, Eye, MessageCircle, Info } from 'lucide-react';
 
 interface MarketingModalProps {
-    property: PropertyRecord;
-    logs: MarketingLog[];
-    onSave: (log: MarketingLog) => void;
+    propertyId: string;
     onClose: () => void;
 }
 
-const MarketingModal: React.FC<MarketingModalProps> = ({ property, logs, onSave, onClose }) => {
+const MarketingModal: React.FC<MarketingModalProps> = ({ propertyId, onClose }) => {
+    const { property, logs, addMarketingLog } = useBusinessStore(useShallow(state => ({
+        property: state.properties.find(p => p.id === propertyId),
+        logs: state.marketingLogs.filter(l => l.propertyId === propertyId),
+        addMarketingLog: state.addMarketingLog
+    })));
+
     const [activeTab, setActiveTab] = useState<'entry' | 'history'>('entry');
 
     // Entry Form State
     const [marketplace, setMarketplace] = useState<MarketingMetrics>({ publications: 0, impressions: 0, clicks: 0, inquiries: 0 });
     const [social, setSocial] = useState<MarketingMetrics>({ publications: 0, impressions: 0, clicks: 0, inquiries: 0 });
     const [ads, setAds] = useState<MarketingMetrics>({ publications: 0, impressions: 0, clicks: 0, inquiries: 0 });
+
+    if (!property) return null;
 
     // Funnel Calculations
     const totalImpressions = logs.reduce((acc, log) => acc + log.marketplace.impressions + log.social.impressions + log.ads.impressions, 0);
@@ -27,7 +35,7 @@ const MarketingModal: React.FC<MarketingModalProps> = ({ property, logs, onSave,
     const ctr = totalImpressions > 0 ? ((totalClicks / totalImpressions) * 100).toFixed(2) : '0';
     const conversionRate = totalClicks > 0 ? ((totalInquiries / totalClicks) * 100).toFixed(2) : '0';
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         const newLog: MarketingLog = {
             id: crypto.randomUUID(),
@@ -53,7 +61,12 @@ const MarketingModal: React.FC<MarketingModalProps> = ({ property, logs, onSave,
                 inquiries: Number(ads.inquiries)
             }
         };
-        onSave(newLog);
+        await addMarketingLog(newLog);
+        setActiveTab('history');
+        // Reset form
+        setMarketplace({ publications: 0, impressions: 0, clicks: 0, inquiries: 0 });
+        setSocial({ publications: 0, impressions: 0, clicks: 0, inquiries: 0 });
+        setAds({ publications: 0, impressions: 0, clicks: 0, inquiries: 0 });
     };
 
     const modalContent = (

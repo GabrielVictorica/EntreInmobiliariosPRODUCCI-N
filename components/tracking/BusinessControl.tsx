@@ -3,59 +3,17 @@ import { format, parseISO, isValid } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
     DollarSign,
-    Users,
-    Briefcase,
-    Activity,
     TrendingUp,
-    Calendar,
-    CheckCircle2,
-    Clock,
-    LayoutGrid,
-    ArrowRight,
-    Target,
     Building2
 } from 'lucide-react';
-import { VisitRecord, ActivityRecord } from '../../types';
+import { ClosingRecord } from '../../types';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
+import { useBusinessStore } from '../../store/useBusinessStore';
+import { useShallow } from 'zustand/react/shallow';
 
 interface BusinessControlProps {
-    currentBilling: number;
-    annualBillingTarget: number;
-    averageTicket: number;
-    pipelineValue: number;
-    metrics: {
-        transactionsNeeded: number;
-        transactionsDone: number;
-        greenMeetingsTarget: number;
-        greenMeetingsDone: number;
-        pocketFees: number;
-        pocketFeesTarget: number;
-        criticalNumberTarget: number;
-        criticalNumberDone: number;
-        activeProperties: number;
-        honorariosPromedio: number;
-        productividadActividad: number;
-        isDataReliable: boolean;
-    };
-    captationGoals: {
-        goalQty: number;
-        startDate: string; // ISO date
-        endDate: string;   // ISO date
-        weeksDuration: number;
-        weeklyPLTarget: number;
-        weeklyPLDone: number;
-    };
-    onNavigateToWeek: () => void;
     onNavigateToCalendar: () => void;
-    closingRate: string;
-    closingRatioDisplay: string;
-    isStandardRate?: boolean;
-    // Year Props
-    availableYears: number[];
-    currentYear: number;
-    onSelectYear: (year: number) => void;
-    isHistoricalView: boolean;
-    onToggleHistorical: (isHistorical: boolean) => void;
+    availableYears?: number[]; // Now optional if using store but kept for compatibility
 }
 
 const COLORS = {
@@ -68,29 +26,49 @@ const COLORS = {
 };
 
 export default function BusinessControl({
-    currentBilling,
-    annualBillingTarget,
-    averageTicket,
-    pipelineValue,
-    metrics,
-    captationGoals,
-    onNavigateToWeek,
     onNavigateToCalendar,
-    closingRate,
-    closingRatioDisplay,
-    isStandardRate = false,
-    availableYears,
-    currentYear,
-    onSelectYear,
-    isHistoricalView,
-    onToggleHistorical
+    availableYears = [2024, 2025, 2026, 2027, 2028]
 }: BusinessControlProps) {
+    // Atomic Store Subscriptions
+    const {
+        metrics, pipelineValue, billingGoal, planAnalysis,
+        currentYear, isHistoricalView, setSelectedYear, setIsHistoricalView
+    } = useBusinessStore(useShallow(state => {
+        const year = state.selectedYear;
+        const goals = state.goalsByYear[year];
+        return {
+            metrics: state.getHomeDisplayMetrics(year),
+            pipelineValue: state.getPipelineValue(),
+            billingGoal: goals?.annualBilling || 0,
+            planAnalysis: state.getPlanAnalysis(year, goals),
+            currentYear: year,
+            isHistoricalView: state.isHistoricalView,
+            setSelectedYear: state.setSelectedYear,
+            setIsHistoricalView: state.setIsHistoricalView
+        };
+    }));
+
+    // ROBUSTNESS: Guard against missing metrics (during year switching)
+    // ROBUSTNESS: Guard against missing metrics (during year switching)
+    const currentBilling = metrics?.totalGCI || 0; // Display GCI (Gross)
+    const annualBillingTarget = billingGoal || 1; // Avoid div by 0
+    const averageTicket = metrics?.avgTicketUSD || 0; // Display Property Price
+
+    // Effectiveness Logic: "effectiveRatio" is (Meetings / Closings) e.g. 6.
+    const rawRatio = planAnalysis?.effectiveRatio || 6;
+    // Percentage: 1 closing / 6 meetings = 16.6%
+    const closingRate = rawRatio > 0 ? ((1 / rawRatio) * 100).toFixed(1) : '0';
+    // Ratio Display: "6:1"
+    const closingRatioDisplay = rawRatio > 0 ? `${rawRatio.toFixed(0)}:1` : '6:1';
+    const isStandardRate = !planAnalysis?.isEffectivenessReliable;
 
     const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val);
     const formatNumber = (val: number) => new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 }).format(val);
 
-    const billingProgress = (currentBilling / annualBillingTarget) * 100;
-    const transactionsProgress = (metrics.transactionsDone / metrics.transactionsNeeded) * 100;
+    // ROBUSTNESS: Safe progress calculations
+    const billingProgress = Math.min(100, (currentBilling / annualBillingTarget) * 100);
+    const transactionsTarget = metrics?.transactionsNeeded || 1;
+    const transactionsProgress = Math.min(100, ((metrics?.transactionsDone || 0) / transactionsTarget) * 100);
 
     return (
         <div className="space-y-6">
@@ -100,7 +78,7 @@ export default function BusinessControl({
                 <div className="flex items-center gap-2">
                     <span className="text-xs font-bold text-gray-400 ml-2 uppercase tracking-wide">Vista:</span>
                     <button
-                        onClick={() => onToggleHistorical(true)}
+                        onClick={() => setIsHistoricalView(true)}
                         className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${isHistoricalView
                             ? 'bg-[#364649] text-white shadow-md'
                             : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
@@ -112,8 +90,8 @@ export default function BusinessControl({
                         <button
                             key={year}
                             onClick={() => {
-                                onToggleHistorical(false);
-                                onSelectYear(year);
+                                setIsHistoricalView(false);
+                                setSelectedYear(year);
                             }}
                             className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${!isHistoricalView && currentYear === year
                                 ? 'bg-[#AA895F] text-white shadow-md'
@@ -133,7 +111,7 @@ export default function BusinessControl({
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-1">
-                                Facturación {isHistoricalView ? 'Histórica' : currentYear}
+                                Facturación Bruta (GCI) {isHistoricalView ? 'Histórica' : currentYear}
                             </p>
                             <p className="text-3xl font-black text-gray-800">{formatCurrency(currentBilling)}</p>
                             <p className="text-sm text-gray-400 mt-1">Meta: {formatCurrency(annualBillingTarget)}</p>
@@ -143,11 +121,11 @@ export default function BusinessControl({
                     <div className="mt-4 pt-4 border-t border-gray-100 grid grid-cols-2 gap-4">
                         <div>
                             <p className="text-[10px] font-bold uppercase text-gray-400">Ingresos Netos</p>
-                            <p className="text-lg font-bold text-emerald-600">{formatCurrency(metrics.pocketFees)}</p>
-                            <p className="text-[10px] text-gray-400">Meta: {formatCurrency(metrics.pocketFeesTarget)}</p>
+                            <p className="text-lg font-bold text-emerald-600">{formatCurrency(metrics?.pocketFees || 0)}</p>
+                            <p className="text-[10px] text-gray-400">Meta: {formatCurrency(metrics?.pocketFeesTarget || 0)}</p>
                         </div>
                         <div>
-                            <p className="text-[10px] font-bold uppercase text-gray-400">Ticket Promedio</p>
+                            <p className="text-[10px] font-bold uppercase text-gray-400">Ticket Promedio (Venta)</p>
                             <p className="text-lg font-bold text-gray-700">{formatCurrency(averageTicket)}</p>
                             <p className="text-[9px] text-gray-400 font-medium">{isHistoricalView ? '(Histórico)' : `(Año ${currentYear})`}</p>
                         </div>
@@ -163,15 +141,15 @@ export default function BusinessControl({
                                 <p className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-1">
                                     Transacciones {isHistoricalView ? 'Totales' : currentYear}
                                 </p>
-                                <p className="text-3xl font-black text-gray-800">{metrics.transactionsDone}</p>
-                                <p className="text-sm text-gray-400 mt-1">Meta: {metrics.transactionsNeeded.toFixed(1)} puntas</p>
+                                <p className="text-3xl font-black text-gray-800">{metrics?.transactionsDone || 0}</p>
+                                <p className="text-sm text-gray-400 mt-1">Meta: {(metrics?.transactionsNeeded || 0).toFixed(1)} puntas</p>
                             </div>
                             <DonutProgress value={transactionsProgress} color={COLORS.blue} />
                         </div>
                         <div className="mt-4 pt-4 border-t border-gray-100">
                             <div>
                                 <p className="text-[10px] font-bold uppercase text-gray-400">Cartera Activa</p>
-                                <p className="text-lg font-bold text-gray-700">{metrics.activeProperties} props.</p>
+                                <p className="text-lg font-bold text-gray-700">{metrics?.activeProperties || 0} props.</p>
                             </div>
                         </div>
                     </div>
@@ -208,128 +186,53 @@ export default function BusinessControl({
                 </div>
             </div>
 
-            {/* ROW 2: Weekly Activity Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
-                {/* Weekly Activity Goal - Enhanced with Closing Rate */}
-                <div
-                    onClick={onNavigateToWeek}
-                    className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm cursor-pointer hover:shadow-lg transition-all group"
-                >
-                    <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                            <div className="p-2 rounded-lg text-white" style={{ backgroundColor: COLORS.purple }}><Activity size={18} /></div>
-                            <div>
-                                <p className="text-xs font-bold uppercase text-gray-500">Gestión Semanal</p>
-                                <p className="text-[10px] text-gray-400">PL/PB</p>
+            {/* ROW: Effectiveness Metrics */}
+            <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm mb-6">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                    <div className="flex items-center gap-4">
+                        <div className="bg-emerald-500/10 p-3 rounded-2xl text-emerald-600">
+                            <TrendingUp size={24} />
+                        </div>
+                        <div>
+                            <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-1">Efectividad de Venta</p>
+                            <div className="flex items-baseline gap-2">
+                                <h3 className="text-3xl font-black text-gray-800">{closingRate}%</h3>
+                                <span className="text-sm font-bold text-gray-400">efectividad</span>
                             </div>
                         </div>
-                        <ArrowRight size={16} className="text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
-                    <div className="flex items-end justify-between">
+
+                    <div className="h-px md:h-12 w-full md:w-px bg-gray-100"></div>
+
+                    <div className="flex items-center gap-4">
+                        <div className="bg-blue-500/10 p-3 rounded-2xl text-blue-600">
+                            <TrendingUp size={24} className="rotate-90" />
+                        </div>
                         <div>
-                            <span className="text-3xl font-black" style={{ color: COLORS.purple }}>{Math.round(metrics.criticalNumberDone)}</span>
-                            <span className="text-lg font-bold text-gray-300 ml-1">/ {Math.round(metrics.criticalNumberTarget)}</span>
-                        </div>
-                        <span className="text-xs font-bold text-gray-400">{Math.round(Math.min((metrics.criticalNumberDone / metrics.criticalNumberTarget) * 100, 100))}%</span>
-                    </div>
-                    <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden mt-3">
-                        <div
-                            className="h-full transition-all duration-500 rounded-full"
-                            style={{ width: `${Math.min((metrics.criticalNumberDone / metrics.criticalNumberTarget) * 100, 100)}%`, backgroundColor: COLORS.purple }}
-                        ></div>
-                    </div>
-                    {/* Tasa de Cierre Info */}
-                    <div className="mt-3 pt-3 border-t border-gray-100 flex justify-between items-center">
-                        <div>
-                            <p className="text-[10px] font-bold uppercase text-gray-400">Tasa de Cierre</p>
-                            <p className="text-sm font-bold text-emerald-600 flex items-center gap-1">
-                                {closingRate}%
-                                <span className="text-[8px] text-gray-400 font-normal">{isStandardRate ? '(estándar)' : isHistoricalView ? '(Hist)' : '(Año)'}</span>
-                            </p>
-                        </div>
-                        <div className="text-right">
-                            <p className="text-[10px] font-bold uppercase text-gray-400">Ratio</p>
-                            <p className="text-sm font-bold text-gray-600">{closingRatioDisplay}</p>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Green Meetings */}
-                <ActivityCard
-                    title="Actividades Semana"
-                    subtitle="Semanales"
-                    done={metrics.greenMeetingsDone}
-                    target={metrics.greenMeetingsTarget}
-                    color={COLORS.emerald}
-                    icon={<Users size={18} />}
-                    onClick={onNavigateToWeek}
-                />
-
-                {/* Captation Goal */}
-                {(() => {
-                    // Format dates for display
-                    const formatDate = (isoDate: string) => {
-                        try {
-                            const date = parseISO(isoDate);
-                            if (!isValid(date)) return '';
-                            return format(date, 'dd MMM', { locale: es });
-                        } catch {
-                            return '';
-                        }
-                    };
-                    const startFormatted = formatDate(captationGoals.startDate);
-                    const endFormatted = formatDate(captationGoals.endDate);
-                    const periodLabel = startFormatted && endFormatted
-                        ? `${startFormatted} - ${endFormatted}`
-                        : 'Sin período definido';
-                    const weeksLabel = captationGoals.weeksDuration > 0
-                        ? `${captationGoals.weeksDuration} ${captationGoals.weeksDuration === 1 ? 'Semana' : 'Semanas'}`
-                        : '';
-                    const progressPercent = captationGoals.weeklyPLTarget > 0
-                        ? Math.min((captationGoals.weeklyPLDone / captationGoals.weeklyPLTarget) * 100, 100)
-                        : 0;
-
-                    return (
-                        <div
-                            onClick={onNavigateToWeek}
-                            className="bg-[#364649] border border-[#364649]/80 rounded-2xl p-5 cursor-pointer hover:shadow-xl hover:shadow-[#364649]/20 transition-all group"
-                        >
-                            <div className="flex items-center justify-between mb-3">
-                                <div className="flex items-center gap-2">
-                                    <div className="bg-[#AA895F] p-2 rounded-lg text-white"><Target size={18} /></div>
-                                    <div>
-                                        <p className="text-xs font-bold uppercase text-white">Meta Captaciones</p>
-                                        <p className="text-[10px] text-white/60">{periodLabel}</p>
-                                    </div>
-                                </div>
-                                {weeksLabel && (
-                                    <span className="text-[9px] uppercase font-bold text-[#AA895F] bg-[#AA895F]/20 px-2 py-1 rounded-full">
-                                        {weeksLabel}
-                                    </span>
+                            <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-1">Ratio de Conversión</p>
+                            <div className="flex items-baseline gap-2">
+                                <h3 className="text-3xl font-black text-gray-800">{closingRatioDisplay}</h3>
+                                {isStandardRate ? (
+                                    <span className="text-[10px] font-black uppercase text-blue-600 bg-blue-50 px-2 py-1 rounded-full">Estándar</span>
+                                ) : (
+                                    <span className="text-[10px] font-black uppercase text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">{isHistoricalView ? 'Historial Real' : 'Año Actual'}</span>
                                 )}
                             </div>
-                            <div className="flex items-end justify-between">
-                                <div>
-                                    <p className="text-3xl font-black text-white">{captationGoals.goalQty}</p>
-                                    <p className="text-[10px] text-white/50 mt-1">captaciones objetivo</p>
-                                </div>
-                                <div className="text-right">
-                                    <p className="text-sm font-bold text-[#AA895F]">
-                                        {captationGoals.weeklyPLDone}/{Math.ceil(captationGoals.weeklyPLTarget)}
-                                    </p>
-                                    <p className="text-[10px] text-white/50">PLs esta semana</p>
-                                </div>
-                            </div>
-                            <div className="w-full bg-white/20 h-1.5 rounded-full overflow-hidden mt-3">
-                                <div
-                                    className="h-full bg-[#AA895F] transition-all duration-500 rounded-full"
-                                    style={{ width: `${progressPercent}%` }}
-                                ></div>
-                            </div>
                         </div>
-                    );
-                })()}
+                    </div>
+
+                    <div className="hidden lg:block flex-1"></div>
+
+                    <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100">
+                        <p className="text-[9px] font-bold text-gray-400 uppercase mb-1">Info</p>
+                        <p className="text-[11px] text-gray-600 leading-relaxed max-w-[200px]">
+                            {isStandardRate
+                                ? "Se utiliza el promedio estándar de la industria (6:1) por falta de historial suficiente."
+                                : "Datos basados en tu desempeño histórico real cargado en el sistema."}
+                        </p>
+                    </div>
+                </div>
             </div>
 
             {/* ROW: Productivity Metrics */}
@@ -340,10 +243,10 @@ export default function BusinessControl({
                         <div className="bg-[#AA895F]/10 p-2 rounded-xl text-[#AA895F]"><DollarSign size={20} /></div>
                         <div>
                             <p className="text-2xl font-black text-gray-800">
-                                {metrics.isDataReliable ? formatCurrency(metrics.honorariosPromedio) : 'Datos insuficientes'}
+                                {metrics?.isDataReliable ? formatCurrency(metrics?.honorariosPromedio || 0) : 'Datos insuficientes'}
                             </p>
                             <p className="text-[10px] text-gray-400">
-                                {metrics.isDataReliable ? 'Ingreso neto promedio por punta' : 'Requiere 4 meses y 5 cierres'}
+                                {metrics?.isDataReliable ? 'Ingreso neto promedio por punta' : 'Requiere 4 meses y 5 cierres'}
                             </p>
                         </div>
                     </div>
@@ -354,10 +257,10 @@ export default function BusinessControl({
                         <div className="bg-[#364649]/10 p-2 rounded-xl text-[#364649]"><TrendingUp size={20} /></div>
                         <div>
                             <p className="text-2xl font-black text-gray-800">
-                                {metrics.isDataReliable ? formatCurrency(metrics.productividadActividad) : 'Datos insuficientes'}
+                                {metrics?.isDataReliable ? formatCurrency(metrics?.productividadActividad || 0) : 'Datos insuficientes'}
                             </p>
                             <p className="text-[10px] text-gray-400">
-                                {metrics.isDataReliable ? 'Valor de cada registro en Mi Semana' : 'Sin datos suficientes'}
+                                {metrics?.isDataReliable ? 'Valor de cada registro en Mi Semana' : 'Sin datos suficientes'}
                             </p>
                         </div>
                     </div>
@@ -402,46 +305,3 @@ const DonutProgress = ({ value, color }: { value: number; color: string }) => {
     );
 };
 
-// Activity Card Component
-const ActivityCard = ({ title, subtitle, done, target, color, icon, onClick }: {
-    title: string;
-    subtitle: string;
-    done: number;
-    target: number;
-    color: string;
-    icon: React.ReactNode;
-    onClick: () => void;
-}) => {
-    const progress = Math.min((done / target) * 100, 100);
-
-    return (
-        <div
-            onClick={onClick}
-            className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm cursor-pointer hover:shadow-lg transition-all group"
-        >
-            <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                    <div className="p-2 rounded-lg text-white" style={{ backgroundColor: color }}>{icon}</div>
-                    <div>
-                        <p className="text-xs font-bold uppercase text-gray-500">{title}</p>
-                        <p className="text-[10px] text-gray-400">{subtitle}</p>
-                    </div>
-                </div>
-                <ArrowRight size={16} className="text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
-            <div className="flex items-end justify-between">
-                <div>
-                    <span className="text-3xl font-black" style={{ color }}>{done}</span>
-                    <span className="text-lg font-bold text-gray-300 ml-1">/ {target}</span>
-                </div>
-                <span className="text-xs font-bold text-gray-400">{Math.round(progress)}%</span>
-            </div>
-            <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden mt-3">
-                <div
-                    className="h-full transition-all duration-500 rounded-full"
-                    style={{ width: `${progress}%`, backgroundColor: color }}
-                ></div>
-            </div>
-        </div>
-    );
-};

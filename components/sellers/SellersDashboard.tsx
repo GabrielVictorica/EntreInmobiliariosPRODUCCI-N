@@ -1,6 +1,6 @@
-
-import React, { useState } from 'react';
-import { ClientRecord, PropertyRecord } from '../../types';
+import React, { useState, useMemo } from 'react';
+import { useBusinessStore } from '../../store/useBusinessStore';
+import { useShallow } from 'zustand/react/shallow';
 import {
   Plus,
   ChevronDown,
@@ -11,21 +11,66 @@ import {
   Mail,
   Home,
   ArrowRight,
-  ShieldCheck
+  ShieldCheck,
+  Search
 } from 'lucide-react';
+import { DebouncedInput } from '../DebouncedInput';
+import { DashboardHeader } from '../ui/DashboardHeader';
 
 interface DashboardProps {
-  clients: ClientRecord[];
-  properties: PropertyRecord[]; // Added prop
-  onNewClient: () => void;
+  onNewSeller: () => void;
   onEditClient: (clientId: string) => void;
   onAssignProperty: (clientId: string) => void;
   onEditProperty: (id: string) => void;
-  isLoading?: boolean;
 }
 
-const SellersDashboard: React.FC<DashboardProps> = ({ clients, properties, onNewClient, onEditClient, onAssignProperty, onEditProperty, isLoading }) => {
+const SellersDashboard: React.FC<DashboardProps> = ({
+  onNewSeller,
+  onEditClient,
+  onAssignProperty,
+  onEditProperty
+}) => {
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const { clients, properties, isLoading } = useBusinessStore(useShallow(state => ({
+    clients: state.clients,
+    properties: state.properties,
+    isLoading: state.isSystemInitializing
+  })));
+
+  // 1. Data Structure Optimization: O(1) Property Lookup
+  const propertiesByClientId = useMemo(() => {
+    const map = new Map<string, typeof properties>();
+    properties.forEach(p => {
+      if (!map.has(p.clientId)) map.set(p.clientId, []);
+      map.get(p.clientId)!.push(p);
+    });
+    return map;
+  }, [properties]);
+
+  // 2. Render Virtualization State
+  const [visibleCount, setVisibleCount] = useState(10);
+
+  // Internal Filtering
+  const filteredClients = useMemo(() => {
+    if (!searchQuery) return clients;
+    const lowerQuery = searchQuery.toLowerCase();
+    return clients.filter(client => {
+      const nameMatch = client.owners.some(owner => owner.name.toLowerCase().includes(lowerQuery));
+      const emailMatch = client.contact.email.toLowerCase().includes(lowerQuery);
+      return nameMatch || emailMatch;
+    });
+  }, [clients, searchQuery]);
+
+  // 3. Progressive Rendering Slice
+  const displayedClients = useMemo(() => {
+    return filteredClients.slice(0, visibleCount);
+  }, [filteredClients, visibleCount]);
+
+  const handleLoadMore = () => {
+    setVisibleCount(prev => prev + 20);
+  };
 
   const toggleRow = (id: string) => {
     setExpandedRow(expandedRow === id ? null : id);
@@ -34,24 +79,25 @@ const SellersDashboard: React.FC<DashboardProps> = ({ clients, properties, onNew
   return (
     <div className="space-y-8 pb-10">
 
-      {/* Page Title & Action */}
-      <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-[#364649] tracking-tight">Dashboard</h1>
-          <div className="flex items-center gap-2 mt-1">
-            <p className="text-[#364649]/60 text-sm font-medium">Gestión de cartera</p>
-            <span className="w-1 h-1 rounded-full bg-[#364649]/30"></span>
-            <p className="text-[#364649]/40 text-sm font-medium">{clients.length} {clients.length === 1 ? 'cliente registrado' : 'clientes registrados'}</p>
-          </div>
-        </div>
-        <button
-          onClick={onNewClient}
-          className="btn-hover-effect bg-[#AA895F] text-white px-6 py-3 rounded-xl font-semibold shadow-lg shadow-[#AA895F]/30 flex items-center active:scale-95"
-        >
-          <Plus className="mr-2" size={18} />
-          Nuevo Cliente
-        </button>
-      </div>
+      {/* Standardized Header */}
+      {/* Standardized Header */}
+      <DashboardHeader
+        title="Dashboard"
+        subtitle="Gestión de cartera"
+        count={useMemo(() => ({
+          value: filteredClients.length,
+          label: filteredClients.length === 1 ? 'cliente registrado' : 'clientes registrados'
+        }), [filteredClients.length])}
+        searchProps={useMemo(() => ({
+          placeholder: "Buscar por nombre o email...",
+          value: searchQuery,
+          onChange: setSearchQuery
+        }), [searchQuery])}
+        actionProps={useMemo(() => ({
+          label: "Nuevo Cliente",
+          onClick: onNewSeller
+        }), [onNewSeller])}
+      />
 
       {/* Main Table / List */}
       <div className="bg-white/60 backdrop-blur-xl border border-white rounded-3xl overflow-hidden shadow-xl" >
@@ -72,7 +118,7 @@ const SellersDashboard: React.FC<DashboardProps> = ({ clients, properties, onNew
               </div>
             ))}
           </div>
-        ) : clients.length === 0 ? (
+        ) : filteredClients.length === 0 ? (
           <div className="p-16 text-center">
             <div className="w-16 h-16 bg-[#364649]/5 rounded-full flex items-center justify-center mx-auto mb-4 border border-[#364649]/10 animate-pulse">
               <Users className="text-[#364649]/40" size={24} />
@@ -94,9 +140,9 @@ const SellersDashboard: React.FC<DashboardProps> = ({ clients, properties, onNew
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#364649]/5">
-                {clients.map((client, index) => {
+                {displayedClients.map((client, index) => {
                   const isExpanded = expandedRow === client.id;
-                  const clientProperties = properties.filter(p => p.clientId === client.id);
+                  const clientProperties = propertiesByClientId.get(client.id) || [];
 
                   return (
                     <React.Fragment key={client.id}>
@@ -263,8 +309,20 @@ const SellersDashboard: React.FC<DashboardProps> = ({ clients, properties, onNew
           </div>
         )}
       </div>
+
+      {/* Load More Trigger */}
+      {filteredClients.length > visibleCount && (
+        <div className="flex justify-center mt-4 pb-8">
+          <button
+            onClick={handleLoadMore}
+            className="text-sm font-bold text-[#AA895F] hover:text-[#364649] transition-colors flex items-center gap-2 border border-[#AA895F]/20 px-4 py-2 rounded-full hover:bg-[#AA895F]/10"
+          >
+            Cargar más clientes <ChevronDown size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 };
 
-export default SellersDashboard;
+export default React.memo(SellersDashboard);

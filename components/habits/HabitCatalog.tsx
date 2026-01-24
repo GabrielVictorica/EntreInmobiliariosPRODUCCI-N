@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { supabase } from '../../services/supabaseClient';
 import { Habit, HabitCategory } from '../../types';
+import { useHabitStore } from '../../store/useHabitStore';
 import {
     Search,
     Filter,
@@ -21,32 +21,9 @@ import {
     X
 } from 'lucide-react';
 
-// Mapeo DB -> Frontend
-const mapHabitFromDB = (db: any, categories: HabitCategory[]): Habit => ({
-    id: db.id,
-    userId: db.user_id,
-    name: db.name,
-    categoryId: db.category_id,
-    category: categories.find(c => c.id === db.category_id),
-    frequency: db.frequency || ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
-    scheduleType: db.schedule_type || 'flexible',
-    preferredBlock: db.preferred_block || 'anytime',
-    fixedTime: db.fixed_time,
-    estimatedDuration: db.estimated_duration || 15,
-    cognitiveLoad: db.cognitive_load || 'medium',
-    active: db.active !== false,
-    icon: db.icon || '📌',
-    currentStreak: db.current_streak || 0,
-    longestStreak: db.longest_streak || 0,
-    lastCompletedDate: db.last_completed_date,
-    createdAt: db.created_at,
-    endDate: db.end_date,
-    googleEventId: db.google_event_id
-});
+// Mapeo DB -> Frontend removido (movido al store)
 
 interface HabitCatalogProps {
-    userId: string;
-    categories: HabitCategory[];
     onEditHabit?: (habit: Habit) => void;
     onDeleteHabit?: (habitId: string) => void;
 }
@@ -54,37 +31,14 @@ interface HabitCatalogProps {
 type SortField = 'name' | 'category' | 'duration' | 'streak' | 'createdAt';
 type SortDirection = 'asc' | 'desc';
 
-export default function HabitCatalog({ userId, categories, onEditHabit, onDeleteHabit }: HabitCatalogProps) {
-    const [habits, setHabits] = useState<Habit[]>([]);
-    const [loading, setLoading] = useState(true);
+export default function HabitCatalog({ onEditHabit, onDeleteHabit }: HabitCatalogProps) {
+    const { habits, categories, isLoading: loading, deleteHabit, updateHabit } = useHabitStore();
     const [searchTerm, setSearchTerm] = useState('');
     const [categoryFilter, setCategoryFilter] = useState<number | 'all'>('all');
     const [blockFilter, setBlockFilter] = useState<string | 'all'>('all');
     const [sortField, setSortField] = useState<SortField>('name');
     const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
     const [showFilters, setShowFilters] = useState(false);
-
-    // Fetch only active habits (eliminated habits are not shown)
-    const fetchAllHabits = useCallback(async () => {
-        if (!userId) return;
-        setLoading(true);
-
-        const { data, error } = await supabase
-            .from('habits')
-            .select('*')
-            .eq('user_id', userId)
-            .eq('active', true)
-            .order('created_at', { ascending: false });
-
-        if (!error && data) {
-            setHabits(data.map(h => mapHabitFromDB(h, categories)));
-        }
-        setLoading(false);
-    }, [userId, categories]);
-
-    useEffect(() => {
-        fetchAllHabits();
-    }, [fetchAllHabits]);
 
     // Filter and sort habits
     const filteredHabits = useMemo(() => {
@@ -461,6 +415,13 @@ export default function HabitCatalog({ userId, categories, onEditHabit, onDelete
                                         {/* Actions */}
                                         <td className="px-4 py-3 text-right">
                                             <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button
+                                                    onClick={() => updateHabit(habit.id, { active: !habit.active })}
+                                                    className={`p-2 rounded-lg transition-colors ${habit.active ? 'text-green-500 hover:bg-green-50' : 'text-slate-400 hover:bg-gray-100'}`}
+                                                    title={habit.active ? 'Desactivar' : 'Activar'}
+                                                >
+                                                    <Zap size={16} fill={habit.active ? 'currentColor' : 'none'} />
+                                                </button>
                                                 {onEditHabit && (
                                                     <button
                                                         onClick={() => onEditHabit(habit)}
@@ -470,15 +431,15 @@ export default function HabitCatalog({ userId, categories, onEditHabit, onDelete
                                                         <Edit2 size={16} />
                                                     </button>
                                                 )}
-                                                {onDeleteHabit && (
-                                                    <button
-                                                        onClick={() => onDeleteHabit(habit.id)}
-                                                        className="p-2 hover:bg-red-50 rounded-lg text-slate-400 hover:text-red-500 transition-colors"
-                                                        title="Eliminar"
-                                                    >
-                                                        <Trash2 size={16} />
-                                                    </button>
-                                                )}
+                                                <button
+                                                    onClick={() => {
+                                                        if (onDeleteHabit) onDeleteHabit(habit.id);
+                                                    }}
+                                                    className="p-2 hover:bg-red-50 rounded-lg text-slate-400 hover:text-red-500 transition-colors"
+                                                    title="Eliminar"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
                                             </div>
                                         </td>
                                     </tr>
